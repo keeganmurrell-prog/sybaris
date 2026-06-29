@@ -4317,36 +4317,84 @@ window.Ic = Ic;
 
     // Mobile: play the lights-on clip once, slowed down, then hold on the
     // fully-lit final frame. Slowing it (MOBILE_PLAY_RATE) makes the reveal
-    // read as a deliberate animation rather than a quick flicker. If autoplay
-    // is blocked (some browsers), fall back to snapping to the lit final frame
-    // so the visitor still sees the lit room rather than a dark one.
+    // read as a deliberate animation rather than a quick flicker.
     useEffect(() => {
       if (!isMobile || !video) return;
       const v = vRef.current;
       if (!v) return;
+
+      // iOS Safari only allows inline autoplay when the muted *property* is
+      // true — and React sets the muted *attribute* but not always the
+      // property, which is the usual reason muted autoplay "works everywhere
+      // but iPhone". Force the property (and friends) on before calling play.
+      v.muted = true;
+      v.defaultMuted = true;
+      v.setAttribute("muted", "");
+      v.playsInline = true;
+      v.setAttribute("playsinline", "");
       const snapToLit = () => {
         try {
           if (v.duration) v.currentTime = Math.max(v.duration - 0.05, 0);
         } catch (e) {}
       };
-      const playSlow = () => {
-        if (!v.duration) return;
+      let started = false;
+      const startPlayback = () => {
+        if (started || !v.duration) return;
+        started = true;
         try {
           v.currentTime = 0;
-          v.playbackRate = MOBILE_PLAY_RATE;
           v.loop = false;
           const p = v.play();
+          // iOS can reset playbackRate when play() begins, so (re)apply it
+          // both immediately and once playback has actually started.
+          v.playbackRate = MOBILE_PLAY_RATE;
           if (p && typeof p.then === "function") {
-            // Autoplay blocked — no animation possible, so show the lit room.
-            p.catch(() => snapToLit());
+            p.then(() => {
+              v.playbackRate = MOBILE_PLAY_RATE;
+            }).catch(() => {
+              started = false;
+              armGesture();
+              snapToLit();
+            });
           }
         } catch (e) {
+          started = false;
+          armGesture();
           snapToLit();
         }
       };
-      if (v.readyState >= 1 && v.duration) playSlow();else v.addEventListener("loadedmetadata", playSlow, {
+
+      // If pure autoplay is blocked (e.g. iOS Low Power Mode), the visitor's
+      // first touch or scroll IS a user gesture that's allowed to start
+      // playback — so kick the animation off on the first interaction.
+      const scroller = document.getElementById("kit-scroll") || window;
+      const onGesture = () => startPlayback();
+      let armed = false;
+      function armGesture() {
+        if (armed) return;
+        armed = true;
+        window.addEventListener("touchstart", onGesture, {
+          once: true,
+          passive: true
+        });
+        window.addEventListener("pointerdown", onGesture, {
+          once: true,
+          passive: true
+        });
+        scroller.addEventListener("scroll", onGesture, {
+          once: true,
+          passive: true
+        });
+      }
+      if (v.readyState >= 1 && v.duration) startPlayback();else v.addEventListener("loadedmetadata", startPlayback, {
         once: true
       });
+      return () => {
+        window.removeEventListener("touchstart", onGesture);
+        window.removeEventListener("pointerdown", onGesture);
+        scroller.removeEventListener("scroll", onGesture);
+        v.removeEventListener("loadedmetadata", startPlayback);
+      };
     }, [isMobile, video]);
     useEffect(() => {
       const scroller = document.getElementById("kit-scroll") || window;
