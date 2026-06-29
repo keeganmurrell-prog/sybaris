@@ -4321,7 +4321,13 @@ window.Ic = Ic;
       if (!v) return;
       const showLit = () => {
         try {
-          if (v.duration) v.currentTime = Math.max(v.duration - 0.05, 0);
+          if (!v.duration) return;
+          v.currentTime = Math.max(v.duration - 0.05, 0);
+          // Safari (notably iOS) often won't paint a seeked frame on a
+          // <video> that has never played — a muted play immediately
+          // followed by a pause forces the frame to actually render.
+          const p = v.play();
+          if (p && typeof p.then === "function") p.then(() => v.pause()).catch(() => {});else v.pause();
         } catch (e) {}
       };
       if (v.readyState >= 1 && v.duration) showLit();else v.addEventListener("loadedmetadata", showLit, {

@@ -4,7 +4,7 @@
 // password prompt is only a UX convenience; this check is what actually
 // protects the live site, and it runs on every save regardless of what the
 // client believes its own unlock state is.
-const { readState, writeState } = require("./_store");
+const { readState, writeState, storeUploadedImage } = require("./_store");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -35,7 +35,11 @@ module.exports = async (req, res) => {
     for (const slot of Object.keys(edits)) {
       const st = edits[slot];
       if (st && typeof st === "object") {
-        images[slot] = { src: st.src || null, x: st.x, y: st.y };
+        let src = st.src || null;
+        if (typeof src === "string" && src.startsWith("data:")) {
+          src = await storeUploadedImage(slot, src);
+        }
+        images[slot] = { src: src, x: st.x, y: st.y };
       }
     }
 

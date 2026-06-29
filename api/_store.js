@@ -5,6 +5,24 @@ const { put, head } = require("@vercel/blob");
 
 const BLOB_PATH = "sybaris-content/state.json";
 
+// Uploaded/pasted images arrive as huge data: URLs. Storing those inline in
+// the overrides JSON would mean every visitor's page load re-downloads every
+// uploaded photo's full base64 just to read image positions — so decode and
+// store each one as its own blob file instead, keeping only the URL.
+async function storeUploadedImage(slot, dataUrl) {
+  const m = /^data:image\/([\w.+-]+);base64,(.*)$/s.exec(dataUrl);
+  if (!m) return dataUrl;
+  const ext = /^jpe?g$/i.test(m[1]) ? "jpg" : m[1].toLowerCase();
+  const safeSlot = String(slot).replace(/[^A-Za-z0-9_-]/g, "_");
+  const buffer = Buffer.from(m[2], "base64");
+  const blob = await put(`sybaris-content/uploads/edit-${safeSlot}.${ext}`, buffer, {
+    access: "public",
+    contentType: `image/${ext === "jpg" ? "jpeg" : ext}`,
+    allowOverwrite: true,
+  });
+  return blob.url;
+}
+
 async function readState() {
   try {
     const info = await head(BLOB_PATH);
@@ -25,4 +43,4 @@ async function writeState(state) {
   });
 }
 
-module.exports = { readState, writeState };
+module.exports = { readState, writeState, storeUploadedImage };
