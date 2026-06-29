@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sybaris — Kitchens &amp; Interiors</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Hero poster shows instantly while the (much larger) hero video downloads —
+       preload it at top priority so it isn't queued behind fonts/scripts. -->
+  <link rel="preload" as="image" href="assets/gallery/hero-lounge-poster.jpg" fetchpriority="high">
+  <!-- Alternate display faces for the "Display type" tweak (Didone is the default). -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600;700&display=swap">
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+  <div id="kit-scroll"><div id="root"></div></div>
+  <script src="bundle.js"></script>
+</body>
+</html>

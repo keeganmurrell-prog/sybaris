@@ -1,0 +1,82 @@
+{
+  "home-feat-everson": {
+    "src": "assets/uploads/edit-home-feat-everson.jpg",
+    "x": 33.15789473684208,
+    "y": 70.21052631578947
+  },
+  "team-4": {
+    "src": "assets/uploads/edit-team-4.jpg",
+    "x": 50,
+    "y": 50
+  },
+  "team-5": {
+    "src": "assets/uploads/edit-team-5.jpg",
+    "x": 58.08080602575228,
+    "y": 94.44444444444433
+  },
+  "home-feat-van-der-hoff": {
+    "src": "assets/uploads/edit-home-feat-van-der-hoff.jpg",
+    "x": 94.47368421052632,
+    "y": 100
+  },
+  "gallery-vogel": {
+    "src": "assets/uploads/edit-gallery-vogel.jpg",
+    "x": 50,
+    "y": 50
+  },
+  "home-statement": {
+    "src": "assets/uploads/edit-home-statement.jpg",
+    "x": 59.81338575746019,
+    "y": 50.450693645689064
+  },
+  "team-0": {
+    "src": "assets/uploads/edit-team-0.jpg",
+    "x": 50,
+    "y": 50
+  },
+  "team-6": {
+    "src": "assets/uploads/edit-team-6.jpg",
+    "x": 90.40396231192133,
+    "y": 100
+  },
+  "home-feat-blakemore": {
+    "src": "assets/uploads/edit-home-feat-blakemore.jpg",
+    "x": 50,
+    "y": 50
+  },
+  "team-7": {
+    "src": "assets/uploads/edit-team-7.jpg",
+    "x": 59.76431387442131,
+    "y": 100
+  },
+  "team-3": {
+    "src": "assets/uploads/edit-team-3.jpg",
+    "x": 50,
+    "y": 50
+  },
+  "gallery-metelerkamp": {
+    "src": "assets/uploads/edit-gallery-metelerkamp.jpg",
+    "x": 0.3276103251689189,
+    "y": 87.73955693975225
+  },
+  "home-quote": {
+    "src": "assets/uploads/edit-home-quote.jpg",
+    "x": 51.55325443786987,
+    "y": 65.00000000000003
+  },
+  "team-1": {
+    "src": "assets/uploads/edit-team-1.jpg",
+    "x": 51.68350784866898,
+    "y": 32.05387369791668
+  },
+  "team-2": {
+    "src": "assets/uploads/edit-team-2.jpg",
+    "x": 50,
+    "y": 50
+  },
+  "gallery-miller": {
+    "src": "assets/uploads/edit-gallery-miller.jpg",
+    "x": 19.86077385979728,
+    "y": 53.669130067567586
+  }
+}

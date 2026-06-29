@@ -1,0 +1,9 @@
+{
+  "routes": [
+    { "src": "/_image-overrides\\.json$", "dest": "/api/overrides?type=images" },
+    { "src": "/_content-overrides\\.json$", "dest": "/api/overrides?type=text" },
+    { "src": "/__save$", "dest": "/api/save" },
+    { "src": "/__verify-edit$", "dest": "/api/verify-edit" },
+    { "handle": "filesystem" }
+  ]
+}

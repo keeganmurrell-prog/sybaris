@@ -1,0 +1,8 @@
+{
+  "name": "sybaris-site",
+  "private": true,
+  "description": "Static Sybaris site + Vercel Functions for live, password-protected editing.",
+  "dependencies": {
+    "@vercel/blob": "^2.5.0"
+  }
+}

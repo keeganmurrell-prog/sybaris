@@ -1,0 +1,5 @@
+# Local Vercel folder
+.vercel
+
+# Dependencies (Vercel installs these during deploy)
+node_modules

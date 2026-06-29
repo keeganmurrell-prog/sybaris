@@ -1,0 +1,278 @@
+/* ============================================================
+   Sybaris — Webfonts
+   SUBSTITUTION NOTE: The Sybaris wordmark is a high-contrast
+   Didone serif paired with a wide-tracked geometric sans.
+   No brand font binaries were supplied, so the closest Google
+   Font matches are used here:
+     · Display  → Playfair Display  (Didone, matches wordmark)
+     · Sans/UI  → Jost             (geometric, for tracked caps)
+   Please send the real brand fonts to replace these.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Jost:wght@300;400;500;600&display=swap');
+
+/* ============================================================
+   Sybaris — Color
+   Luxury cream & ivory surfaces, warm off-black ink, with
+   restrained brass, timber, navy and sage accents drawn from
+   the cabinetry and metalwork of the kitchens.
+   ============================================================ */
+
+:root {
+  /* ---- Base neutrals: warm paper & ivory ---- */
+  --cream-50:  #FBF9F4;   /* lightest canvas            */
+  --cream-100: #F6F2EA;   /* primary paper / page bg    */
+  --cream-200: #EFE9DD;   /* sand, alternate section bg */
+  --cream-300: #E5DDCC;   /* raised tint                */
+  --line-soft: #E0D8C9;   /* hairline on cream          */
+  --line:      #D2C9B6;   /* standard hairline / rule   */
+
+  /* ---- Stone: warm greys ---- */
+  --stone-200: #C4BDB0;
+  --stone-300: #ABA496;
+  --stone-400: #908A7C;
+  --stone-500: #746F63;
+  --stone-600: #565249;
+
+  /* ---- Ink: warm off-black ---- */
+  --ink-900: #1A1916;    /* near-black, headings on cream */
+  --ink-800: #25241F;    /* dark surfaces                 */
+  --ink-700: #34322C;    /* charcoal                      */
+
+  /* ---- Brand accents (used sparingly) ---- */
+  --brass-300: #C2A878;  /* light brass / highlight       */
+  --brass-500: #9A7B4F;  /* primary brass accent          */
+  --brass-700: #7C6240;  /* deep bronze, hover            */
+  --oak-500:   #B98A5E;  /* timber / warm wood            */
+  --navy-700:  #2C3A47;  /* deep cabinetry navy           */
+  --sage-500:  #87917F;  /* muted cabinetry green         */
+
+  /* ---- Functional ---- */
+  --white:     #FFFFFF;
+  --success:   #5E6B4F;
+  --danger:    #93493E;
+
+  /* ============================================================
+     Semantic aliases — reference these in components
+     ============================================================ */
+
+  /* Surfaces */
+  --surface-page:     var(--cream-100);
+  --surface-canvas:   var(--cream-50);
+  --surface-sand:     var(--cream-200);
+  --surface-raised:   var(--white);
+  --surface-dark:     var(--ink-900);
+  --surface-dark-2:   var(--ink-800);
+
+  /* Text */
+  --text-strong:      var(--ink-900);
+  --text-body:        var(--ink-700);
+  --text-muted:       var(--stone-500);
+  --text-faint:       var(--stone-400);
+  --text-inverse:     var(--cream-100);
+  --text-inverse-mut: var(--stone-300);
+  --text-accent:      var(--brass-700);
+
+  /* Lines & borders */
+  --border-hairline:  var(--line-soft);
+  --border-rule:      var(--line);
+  --border-strong:    var(--ink-900);
+  --border-inverse:   rgba(255,255,255,0.16);
+
+  /* Accent */
+  --accent:           var(--brass-500);
+  --accent-hover:     var(--brass-700);
+  --accent-on:        var(--cream-50);   /* text/icon on accent fill */
+}
+
+/* ============================================================
+   Sybaris — Typography
+   Display: Playfair Display (Didone serif) — titles, numerals,
+   editorial statements. Used at generous sizes, tight leading.
+   Sans: Jost — UI, body, and wide-tracked overline labels.
+   ============================================================ */
+
+:root {
+  /* Families */
+  --font-display: 'Playfair Display', 'Times New Roman', serif;
+  --font-sans:    'Jost', 'Helvetica Neue', Arial, sans-serif;
+  --font-body:    var(--font-sans);
+
+  /* Weights */
+  --fw-light:   300; /* @kind font */
+  --fw-regular: 400; /* @kind font */
+  --fw-medium:  500; /* @kind font */
+  --fw-semi:    600; /* @kind font */
+  --fw-bold:    700; /* @kind font */
+
+  /* Type scale (px) — editorial, large display steps */
+  --text-2xs: 11px;
+  --text-xs:  12px;
+  --text-sm:  14px;
+  --text-base:16px;
+  --text-md:  18px;
+  --text-lg:  22px;
+  --text-xl:  28px;
+  --text-2xl: 36px;
+  --text-3xl: 46px;
+  --text-4xl: 60px;
+  --text-5xl: 78px;
+  --text-6xl: 104px;
+
+  /* Line heights */
+  --leading-tight:  1.04;
+  --leading-snug:   1.18;
+  --leading-normal: 1.5;
+  --leading-relaxed:1.7;
+
+  /* Letter spacing */
+  --tracking-tight:   -0.02em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.08em;
+  --tracking-wider:   0.18em;   /* overline / nav labels       */
+  --tracking-widest:  0.32em;   /* logo sub-label "KITCHENS &" */
+}
+
+/* ---- Convenience utility classes (optional for cards) ---- */
+
+.s-display {
+  font-family: var(--font-display);
+  font-weight: var(--fw-regular);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+}
+
+.s-overline {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-medium);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.s-body {
+  font-family: var(--font-body);
+  font-weight: var(--fw-regular);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  color: var(--text-body);
+}
+
+/* ============================================================
+   Sybaris — Spacing, radii, elevation, motion
+   Generous, architectural rhythm. Minimal rounding — surfaces
+   are mostly squared. Shadows are soft, low and warm.
+   ============================================================ */
+
+:root {
+  /* ---- Spacing scale (4px base) ---- */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+  --space-40: 160px;
+
+  /* Section rhythm */
+  --gutter:        clamp(20px, 5vw, 64px);  /* @kind spacing */
+  --section-y:     clamp(64px, 9vw, 128px); /* @kind spacing */
+
+  /* ---- Radii — restrained ---- */
+  --radius-none: 0;
+  --radius-xs:   2px;
+  --radius-sm:   3px;
+  --radius-md:   5px;
+  --radius-pill: 999px;
+
+  /* ---- Borders ---- */
+  --border-w:      1px;
+  --border-w-thick:1.5px;
+
+  /* ---- Elevation: soft warm shadows ---- */
+  --shadow-xs:   0 1px 2px rgba(40, 34, 24, 0.05);
+  --shadow-card: 0 8px 24px -12px rgba(40, 34, 24, 0.18);
+  --shadow-raised:0 18px 48px -20px rgba(34, 28, 18, 0.28);
+  --shadow-overlay:0 32px 80px -28px rgba(20, 16, 10, 0.42);
+
+  /* ---- Motion ---- */
+  --ease-out:   cubic-bezier(0.22, 0.61, 0.36, 1); /* @kind other */
+  --ease-inout: cubic-bezier(0.65, 0.05, 0.36, 1); /* @kind other */
+  --dur-fast:   180ms; /* @kind other */
+  --dur-base:   320ms; /* @kind other */
+  --dur-slow:   620ms; /* @kind other */
+
+  /* ---- Layout ---- */
+  --maxw-prose:   68ch;    /* @kind other */
+  --maxw-content: 1200px;  /* @kind other */
+  --maxw-wide:    1440px;  /* @kind other */
+}
+
+/* ============================================================
+   Sybaris — Base / reset
+   Minimal element defaults so specimens & kits inherit the
+   brand voice without per-file boilerplate.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-regular);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+  margin: 0;
+}
+
+p { margin: 0; }
+
+a { color: inherit; text-decoration: none; }
+
+img { display: block; max-width: 100%; }
+
+::selection { background: var(--brass-300); color: var(--ink-900); }
+
+/* Shared overline helper */
+.overline {
+  font-family: var(--font-sans);
+  font-weight: var(--fw-medium);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+
+/* ============================================================
+   Page shell (moved from index.html's inline <style> block)
+   ============================================================ */
+html, body { height: 100%; margin: 0; }
+#kit-scroll { height: 100vh; overflow-y: auto; overflow-x: hidden; background: var(--cream-100); scroll-behavior: smooth; }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-thumb { background: var(--stone-300); border-radius: 999px; }
+/* Photography treatment ("Photography" tweak). Scoped to content imagery in
+   <main> so logos and the edit-drawer thumbnails stay true-colour. */
+main img { filter: var(--photo-filter, none); transition: filter var(--dur-slow, 620ms) var(--ease-out, ease); }
