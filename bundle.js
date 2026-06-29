@@ -4237,6 +4237,9 @@ window.Ic = Ic;
   const MZOOM_DEFAULT = 1.0;
   const MPOSY_DEFAULT = 0;
   const MH_DEFAULT = 58;
+  // How fast the lights-on clip plays on mobile. <1 slows it down so the
+  // reveal reads as a deliberate animation instead of a quick flicker.
+  const MOBILE_PLAY_RATE = 0.4;
   const readNum = (key, dflt) => {
     try {
       const v = parseFloat(localStorage.getItem("sybaris:txt:" + key));
@@ -4312,25 +4315,36 @@ window.Ic = Ic;
       } catch (e) {}
     };
 
-    // Mobile: show the fully-lit final frame as the resting state — directly,
-    // not by playing the clip and hoping it finishes (autoplay can be blocked,
-    // throttled, or slow on a real connection; this way is instant either way).
+    // Mobile: play the lights-on clip once, slowed down, then hold on the
+    // fully-lit final frame. Slowing it (MOBILE_PLAY_RATE) makes the reveal
+    // read as a deliberate animation rather than a quick flicker. If autoplay
+    // is blocked (some browsers), fall back to snapping to the lit final frame
+    // so the visitor still sees the lit room rather than a dark one.
     useEffect(() => {
       if (!isMobile || !video) return;
       const v = vRef.current;
       if (!v) return;
-      const showLit = () => {
+      const snapToLit = () => {
         try {
-          if (!v.duration) return;
-          v.currentTime = Math.max(v.duration - 0.05, 0);
-          // Safari (notably iOS) often won't paint a seeked frame on a
-          // <video> that has never played — a muted play immediately
-          // followed by a pause forces the frame to actually render.
-          const p = v.play();
-          if (p && typeof p.then === "function") p.then(() => v.pause()).catch(() => {});else v.pause();
+          if (v.duration) v.currentTime = Math.max(v.duration - 0.05, 0);
         } catch (e) {}
       };
-      if (v.readyState >= 1 && v.duration) showLit();else v.addEventListener("loadedmetadata", showLit, {
+      const playSlow = () => {
+        if (!v.duration) return;
+        try {
+          v.currentTime = 0;
+          v.playbackRate = MOBILE_PLAY_RATE;
+          v.loop = false;
+          const p = v.play();
+          if (p && typeof p.then === "function") {
+            // Autoplay blocked — no animation possible, so show the lit room.
+            p.catch(() => snapToLit());
+          }
+        } catch (e) {
+          snapToLit();
+        }
+      };
+      if (v.readyState >= 1 && v.duration) playSlow();else v.addEventListener("loadedmetadata", playSlow, {
         once: true
       });
     }, [isMobile, video]);
