@@ -4237,9 +4237,10 @@ window.Ic = Ic;
   const MZOOM_DEFAULT = 1.0;
   const MPOSY_DEFAULT = 0;
   const MH_DEFAULT = 58;
-  // How fast the lights-on clip plays on mobile. <1 slows it down so the
-  // reveal reads as a deliberate animation instead of a quick flicker.
-  const MOBILE_PLAY_RATE = 0.4;
+  // The mobile lights-on reveal should always take this long, whatever the
+  // clip's native length — playbackRate is derived from it (duration / target)
+  // so the timing stays fixed if the video is ever re-encoded.
+  const MOBILE_ANIM_SECONDS = 4;
   const readNum = (key, dflt) => {
     try {
       const v = parseFloat(localStorage.getItem("sybaris:txt:" + key));
@@ -4315,9 +4316,10 @@ window.Ic = Ic;
       } catch (e) {}
     };
 
-    // Mobile: play the lights-on clip once, slowed down, then hold on the
-    // fully-lit final frame. Slowing it (MOBILE_PLAY_RATE) makes the reveal
-    // read as a deliberate animation rather than a quick flicker.
+    // Mobile: play the lights-on clip once over MOBILE_ANIM_SECONDS, then hold
+    // on the fully-lit final frame so the room stays lit. The playback rate is
+    // derived from the clip's duration so the reveal always takes the target
+    // time, and an 'ended' handler pins the last frame so nothing re-darkens it.
     useEffect(() => {
       if (!isMobile || !video) return;
       const v = vRef.current;
@@ -4332,9 +4334,20 @@ window.Ic = Ic;
       v.setAttribute("muted", "");
       v.playsInline = true;
       v.setAttribute("playsinline", "");
+      const litTime = () => Math.max(v.duration - 0.05, 0);
+      const rate = () => v.duration ? clamp(v.duration / MOBILE_ANIM_SECONDS, 0.0625, 16) : 1;
       const snapToLit = () => {
         try {
-          if (v.duration) v.currentTime = Math.max(v.duration - 0.05, 0);
+          if (v.duration) v.currentTime = litTime();
+        } catch (e) {}
+      };
+
+      // Once the lights are fully on, keep them on: stop at the final frame and
+      // don't let playback restart.
+      const onEnded = () => {
+        try {
+          v.pause();
+          v.currentTime = litTime();
         } catch (e) {}
       };
       let started = false;
@@ -4347,10 +4360,10 @@ window.Ic = Ic;
           const p = v.play();
           // iOS can reset playbackRate when play() begins, so (re)apply it
           // both immediately and once playback has actually started.
-          v.playbackRate = MOBILE_PLAY_RATE;
+          v.playbackRate = rate();
           if (p && typeof p.then === "function") {
             p.then(() => {
-              v.playbackRate = MOBILE_PLAY_RATE;
+              v.playbackRate = rate();
             }).catch(() => {
               started = false;
               armGesture();
@@ -4386,6 +4399,7 @@ window.Ic = Ic;
           passive: true
         });
       }
+      v.addEventListener("ended", onEnded);
       if (v.readyState >= 1 && v.duration) startPlayback();else v.addEventListener("loadedmetadata", startPlayback, {
         once: true
       });
@@ -4394,6 +4408,7 @@ window.Ic = Ic;
         window.removeEventListener("pointerdown", onGesture);
         scroller.removeEventListener("scroll", onGesture);
         v.removeEventListener("loadedmetadata", startPlayback);
+        v.removeEventListener("ended", onEnded);
       };
     }, [isMobile, video]);
     useEffect(() => {
