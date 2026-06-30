@@ -4348,6 +4348,53 @@ window.SYBARIS_PROJECTS = [
       working = copy;
       writeSaved(working); emit();
     },
+
+    // Every tag in use, most-common first — for a tag-management view (as
+    // opposed to deriveFilters(), which only surfaces tags common enough to
+    // be a useful filter chip).
+    allTags: function () {
+      var counts = {}, label = {}, order = [];
+      working.forEach(function (p) {
+        (p.tags || []).forEach(function (t) {
+          var key = String(t).trim(); if (!key) return;
+          var lk = key.toLowerCase();
+          if (counts[lk] === undefined) { counts[lk] = 0; label[lk] = key; order.push(lk); }
+          counts[lk]++;
+        });
+      });
+      return order
+        .map(function (lk) { return { tag: label[lk], count: counts[lk] }; })
+        .sort(function (a, b) { return b.count - a.count; });
+    },
+
+    // Rename a tag everywhere it's used (every kitchen's tags, so the filter
+    // chip and the pills on each kitchen's detail page all update together).
+    // If a kitchen already has the new name too, the two merge (no duplicate).
+    renameTag: function (oldTag, newTag) {
+      var oldLc = String(oldTag).trim().toLowerCase();
+      var clean = String(newTag).trim();
+      if (!clean || oldLc === clean.toLowerCase()) return;
+      working = working.map(function (p) {
+        var seen = {}, tags = [];
+        (p.tags || []).forEach(function (t) {
+          var next = String(t).trim().toLowerCase() === oldLc ? clean : t;
+          var k = next.toLowerCase();
+          if (!seen[k]) { seen[k] = 1; tags.push(next); }
+        });
+        return withLegacyFields(Object.assign({}, p, { tags: tags }));
+      });
+      writeSaved(working); emit();
+    },
+
+    // Remove a tag from every kitchen that has it.
+    removeTag: function (tag) {
+      var lc = String(tag).trim().toLowerCase();
+      working = working.map(function (p) {
+        var tags = (p.tags || []).filter(function (t) { return String(t).trim().toLowerCase() !== lc; });
+        return withLegacyFields(Object.assign({}, p, { tags: tags }));
+      });
+      writeSaved(working); emit();
+    },
   };
 
   window.SybProjects = Store;
@@ -5832,9 +5879,11 @@ window.HomeScreen = HomeScreen;
   } = React;
 
   // Tiny external store so the Gallery grid's buttons can open the drawer that
-  // GalleryScreen renders.
+  // GalleryScreen renders. kind: 'kitchen' (add/edit one) or 'tags' (rename
+  // /remove tags everywhere they're used, i.e. manage the filter chips).
   let panel = {
     open: false,
+    kind: null,
     slug: null
   };
   let subs = [];
@@ -5884,7 +5933,6 @@ window.HomeScreen = HomeScreen;
   function GalleryEditor({
     onOpenProject
   }) {
-    const Store = window.SybProjects;
     const [p, setP] = useState(panel);
     useEffect(() => {
       subs.push(setP);
@@ -5892,8 +5940,30 @@ window.HomeScreen = HomeScreen;
         subs = subs.filter(f => f !== p);
       };
     }, []);
-    const editing = p.open;
-    const existing = p.slug ? Store.get().find(x => x.slug === p.slug) : null;
+    if (!p.open) return null;
+    if (p.kind === 'tags') return /*#__PURE__*/React.createElement(TagManagerPanel, {
+      onClose: () => setPanel({
+        open: false,
+        kind: null,
+        slug: null
+      })
+    });
+    return /*#__PURE__*/React.createElement(KitchenFormPanel, {
+      slug: p.slug,
+      onClose: () => setPanel({
+        open: false,
+        kind: null,
+        slug: null
+      })
+    });
+  }
+  function KitchenFormPanel({
+    slug,
+    onClose
+  }) {
+    const Store = window.SybProjects;
+    const editing = true;
+    const existing = slug ? Store.get().find(x => x.slug === slug) : null;
     const [form, setForm] = useState(null);
     const [tagDraft, setTagDraft] = useState('');
     const [showLib, setShowLib] = useState(false);
@@ -5928,15 +5998,12 @@ window.HomeScreen = HomeScreen;
       }
       setTagDraft('');
       setShowLib(false);
-    }, [editing, p.slug]);
-    if (!editing || !form) return null;
+    }, [slug]);
+    if (!form) return null;
     const set = (k, v) => setForm(f => Object.assign({}, f, {
       [k]: v
     }));
-    const close = () => setPanel({
-      open: false,
-      slug: null
-    });
+    const close = onClose;
     const addTag = t => {
       const v = String(t || '').trim();
       if (!v) return;
@@ -5983,8 +6050,7 @@ window.HomeScreen = HomeScreen;
         blurb: form.blurb.trim(),
         photos: form.photos
       };
-      let slug = p.slug;
-      if (existing) Store.update(p.slug, payload);else slug = Store.add(payload);
+      if (existing) Store.update(slug, payload);else Store.add(payload);
       close();
       // Remind the user their work isn't live until they press Save to project.
       try {
@@ -5997,7 +6063,7 @@ window.HomeScreen = HomeScreen;
     const del = () => {
       if (!existing) return;
       if (!confirm('Remove “' + existing.name + '” from the gallery? Press “Save to project” afterwards to make it permanent.')) return;
-      Store.remove(p.slug);
+      Store.remove(slug);
       close();
     };
 
@@ -6334,6 +6400,168 @@ window.HomeScreen = HomeScreen;
       }
     }, "Changes preview instantly. They go live only when you press ", /*#__PURE__*/React.createElement("strong", null, "Save to project"), ".")));
   }
+
+  // Manage every tag in one place: rename one (everywhere it's used — the
+  // filter chips, every tagged kitchen, and the pills on its detail page all
+  // update together) or remove it outright.
+  function TagManagerPanel({
+    onClose
+  }) {
+    const Store = window.SybProjects;
+    const [, force] = useState(0);
+    useEffect(() => Store.subscribe(() => force(n => n + 1)), []);
+    const rows = Store.allTags();
+    const [drafts, setDrafts] = useState({});
+    const draftFor = tag => drafts[tag] !== undefined ? drafts[tag] : tag;
+    const setDraft = (tag, v) => setDrafts(d => Object.assign({}, d, {
+      [tag]: v
+    }));
+    const commit = tag => {
+      const v = draftFor(tag).trim();
+      if (!v || v === tag) {
+        setDrafts(d => {
+          const c = Object.assign({}, d);
+          delete c[tag];
+          return c;
+        });
+        return;
+      }
+      Store.renameTag(tag, v);
+      setDrafts(d => {
+        const c = Object.assign({}, d);
+        delete c[tag];
+        return c;
+      });
+    };
+    const remove = (tag, count) => {
+      if (!confirm('Remove the “' + tag + '” tag from all ' + count + ' kitchen' + (count === 1 ? '' : 's') + ' it’s on?\n\nThis only affects tagging — the kitchens themselves stay.')) return;
+      Store.removeTag(tag);
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      role: "dialog",
+      "aria-modal": "true",
+      style: {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1200,
+        background: 'rgba(20,16,10,.55)',
+        display: 'flex',
+        justifyContent: 'flex-end'
+      },
+      onClick: e => {
+        if (e.target === e.currentTarget) onClose();
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 'min(460px, 100%)',
+        height: '100%',
+        overflowY: 'auto',
+        background: 'var(--cream-100, #f6f2ea)',
+        boxShadow: '-20px 0 60px rgba(20,16,10,.35)',
+        padding: '22px 22px 40px'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("h2", {
+      style: {
+        font: '500 22px/1.1 var(--font-display, Georgia, serif)',
+        color: 'var(--text-strong, #1a1916)',
+        margin: 0
+      }
+    }, "Manage tags"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: onClose,
+      "aria-label": "Close",
+      style: {
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        border: '1px solid var(--line,#d2c9b6)',
+        background: 'var(--cream-50,#fff)',
+        color: 'var(--text-strong,#1a1916)',
+        font: '500 18px/1 system-ui',
+        cursor: 'pointer'
+      }
+    }, "\xD7")), /*#__PURE__*/React.createElement("p", {
+      style: {
+        font: '400 13px/1.6 var(--font-sans,system-ui)',
+        color: 'var(--text-muted,#8a8175)',
+        marginBottom: 18
+      }
+    }, "Rename a tag and it updates everywhere \u2014 the filter chips on the gallery, and every kitchen tagged with it. The most-used tags become filter chips automatically."), rows.length === 0 && /*#__PURE__*/React.createElement("p", {
+      style: {
+        font: '400 14px/1.5 var(--font-sans,system-ui)',
+        color: 'var(--text-muted,#8a8175)'
+      }
+    }, "No tags yet \u2014 add some from a kitchen's editor."), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8
+      }
+    }, rows.map(({
+      tag,
+      count
+    }) => /*#__PURE__*/React.createElement("div", {
+      key: tag,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      style: Object.assign({}, inputCss, {
+        flex: 1
+      }),
+      value: draftFor(tag),
+      onChange: e => setDraft(tag, e.target.value),
+      onKeyDown: e => {
+        if (e.key === 'Enter') commit(tag);
+      },
+      onBlur: () => commit(tag)
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        font: '500 11px/1 var(--font-sans,system-ui)',
+        color: 'var(--text-muted,#8a8175)',
+        minWidth: 64,
+        textAlign: 'right'
+      }
+    }, count, " kitchen", count === 1 ? '' : 's'), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => remove(tag, count),
+      title: 'Remove “' + tag + '”',
+      style: {
+        border: '1px solid var(--line,#d2c9b6)',
+        background: 'var(--cream-50,#fff)',
+        color: '#b3402f',
+        width: 34,
+        height: 34,
+        borderRadius: 8,
+        cursor: 'pointer',
+        font: '600 13px/1 system-ui',
+        flexShrink: 0
+      }
+    }, "\uD83D\uDDD1")))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 24
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: onClose,
+      style: ghostBtn
+    }, "Done")), /*#__PURE__*/React.createElement("p", {
+      style: {
+        font: '400 12px/1.5 var(--font-sans,system-ui)',
+        color: 'var(--text-muted,#8a8175)',
+        marginTop: 16
+      }
+    }, "Renames and removals apply instantly. Press ", /*#__PURE__*/React.createElement("strong", null, "Save to project"), " afterwards to publish them.")));
+  }
   function Suggestions({
     current,
     onPick
@@ -6404,11 +6632,18 @@ window.HomeScreen = HomeScreen;
   });
   GalleryEditor.openNew = () => setPanel({
     open: true,
+    kind: 'kitchen',
     slug: null
   });
   GalleryEditor.openEdit = slug => setPanel({
     open: true,
+    kind: 'kitchen',
     slug
+  });
+  GalleryEditor.openTags = () => setPanel({
+    open: true,
+    kind: 'tags',
+    slug: null
   });
   window.GalleryEditor = GalleryEditor;
 })();
@@ -6516,7 +6751,20 @@ function GalleryScreen({
     key: f,
     selected: filter === f,
     onClick: () => setFilter(f)
-  }, f)), /*#__PURE__*/React.createElement("span", {
+  }, f)), showEditing && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => Editor.openTags(),
+    style: {
+      padding: '6px 14px',
+      borderRadius: 999,
+      border: '1px dashed var(--line)',
+      background: 'transparent',
+      color: 'var(--text-accent)',
+      font: '600 12px/1 var(--font-sans)',
+      letterSpacing: '0.04em',
+      cursor: 'pointer'
+    }
+  }, "Edit tags"), /*#__PURE__*/React.createElement("span", {
     style: {
       marginLeft: 'auto',
       fontFamily: 'var(--font-sans)',
