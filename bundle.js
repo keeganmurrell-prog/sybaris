@@ -4165,6 +4165,197 @@ window.SYBARIS_PROJECTS = [
 })();
 
 
+/* ===== projects.js ===== */
+(function () {
+/* Sybaris — editable projects store.
+
+   The kitchens shown in the gallery come from data.js (window.SYBARIS_PROJECTS)
+   as a built-in default. This store layers any *saved* edits on top of that
+   default and exposes one working list that the Gallery + Project screens read
+   from, plus a tiny pub/sub so the on-page editor can change it live.
+
+   Persistence reuses the same rails as image/text edits:
+     - the loader seeds localStorage 'sybaris:projects' from the backend file
+       '_projects-overrides.json' on every load (see index.html / assemble.js)
+     - the editor writes the working list back to 'sybaris:projects'
+     - the "Save to project" button posts it to /__save, which stores it on the
+       backend and decodes any uploaded (data: URL) photos into real files.
+
+   A kitchen is normalised to this shape (older data.js entries are upgraded
+   automatically, so nothing has to be rewritten by hand):
+     { slug, name, location, year, tags: [..], blurb, photos: [..] }
+   where photos[0] is the hero. `category`/`materials`/`hero`/`images` are kept
+   in sync on write so the rest of the site (which still reads those) works. */
+(function () {
+  var GAL = "assets/gallery/";
+  var LS_KEY = "sybaris:projects";
+
+  function slugify(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "kitchen";
+  }
+
+  function uniqueSlug(base, taken) {
+    var slug = base, n = 2;
+    while (taken.indexOf(slug) !== -1) { slug = base + "-" + n; n++; }
+    return slug;
+  }
+
+  // A photo ref can be a bare filename in the gallery folder (the original
+  // form), or an already-resolved URL/path (uploaded photo, blob URL, or a
+  // pending data: URL). Resolve only the bare-filename case.
+  function resolveImg(ref) {
+    if (!ref) return "";
+    if (/^(https?:|data:|blob:|\/|assets\/|\.\.\/)/.test(ref)) return ref;
+    return GAL + ref;
+  }
+
+  // Bring any project (old or new shape) to the normalised shape above.
+  function normalize(p) {
+    p = p || {};
+    var tags = Array.isArray(p.tags) ? p.tags.slice()
+      : (Array.isArray(p.materials) ? p.materials.slice() : []);
+    var photos = Array.isArray(p.photos) ? p.photos.slice()
+      : (Array.isArray(p.images) ? p.images.slice()
+        : (p.hero ? [p.hero] : []));
+    return {
+      slug: p.slug || slugify(p.name),
+      name: p.name || "Untitled kitchen",
+      location: p.location || "",
+      year: p.year || "",
+      tags: tags,
+      blurb: p.blurb || "",
+      photos: photos,
+    };
+  }
+
+  // Add back the legacy fields the rest of the site still reads, derived from
+  // the normalised shape, so Gallery/Project screens keep working unchanged.
+  function withLegacyFields(p) {
+    var n = normalize(p);
+    n.category = (p && p.category) || n.tags[0] || "";
+    n.materials = n.tags;
+    n.hero = n.photos[0] || "";
+    n.images = n.photos;
+    return n;
+  }
+
+  function normalizeList(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(withLegacyFields);
+  }
+
+  // Filter chips are derived from the tags actually in use — no separate list
+  // to maintain. To keep the bar clean we only surface tags shared by 2+
+  // kitchens (a one-off material like "Galvanised" shouldn't become a filter),
+  // ordered by how common they are. If too few qualify (e.g. a brand-new, tiny
+  // gallery) we fall back to showing every tag so the bar isn't empty.
+  var FILTER_MIN_COUNT = 2;
+  var FILTER_MAX = 10;
+  function deriveFilters(list) {
+    var counts = {}, label = {}, order = [];
+    (list || []).forEach(function (p) {
+      (p.tags || []).forEach(function (t) {
+        var key = String(t).trim(); if (!key) return;
+        var lk = key.toLowerCase();
+        if (counts[lk] === undefined) { counts[lk] = 0; label[lk] = key; order.push(lk); }
+        counts[lk]++;
+      });
+    });
+    var qualifying = order.filter(function (lk) { return counts[lk] >= FILTER_MIN_COUNT; });
+    var pool = qualifying.length >= 2 ? qualifying : order.slice();
+    pool.sort(function (a, b) { return counts[b] - counts[a] || order.indexOf(a) - order.indexOf(b); });
+    return ["All"].concat(pool.slice(0, FILTER_MAX).map(function (lk) { return label[lk]; }));
+  }
+
+  function readSaved() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) && arr.length ? arr : null;
+    } catch (e) { return null; }
+  }
+
+  function writeSaved(list) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+
+  var subscribers = [];
+  // Working list: saved edits if present, else the data.js default.
+  var working = normalizeList(readSaved() || window.SYBARIS_PROJECTS || []);
+
+  function emit() {
+    // Keep window.SYBARIS_PROJECTS pointing at the live working list so any
+    // code reading it directly stays consistent.
+    window.SYBARIS_PROJECTS = working;
+    subscribers.forEach(function (fn) { try { fn(working); } catch (e) {} });
+  }
+  // Point the global at the working list immediately (covers first render).
+  window.SYBARIS_PROJECTS = working;
+
+  var Store = {
+    get: function () { return working; },
+    resolveImg: resolveImg,
+    deriveFilters: function () { return deriveFilters(working); },
+    slugify: slugify,
+    normalize: normalize,
+
+    subscribe: function (fn) {
+      subscribers.push(fn);
+      return function () { subscribers = subscribers.filter(function (f) { return f !== fn; }); };
+    },
+
+    // Replace the entire list (used by the loader when it seeds saved data).
+    setAll: function (list, opts) {
+      working = normalizeList(list);
+      if (!(opts && opts.silentSave)) writeSaved(working);
+      emit();
+    },
+
+    update: function (slug, patch) {
+      working = working.map(function (p) {
+        return p.slug === slug ? withLegacyFields(Object.assign({}, p, patch)) : p;
+      });
+      writeSaved(working); emit();
+    },
+
+    add: function (partial) {
+      var taken = working.map(function (p) { return p.slug; });
+      var base = uniqueSlug(slugify((partial && partial.name) || "new-kitchen"), taken);
+      var proj = withLegacyFields(Object.assign({ slug: base }, partial));
+      proj.slug = base;
+      working = [proj].concat(working);
+      writeSaved(working); emit();
+      return proj.slug;
+    },
+
+    remove: function (slug) {
+      working = working.filter(function (p) { return p.slug !== slug; });
+      writeSaved(working); emit();
+    },
+
+    move: function (slug, dir) {
+      var i = working.findIndex(function (p) { return p.slug === slug; });
+      if (i < 0) return;
+      var j = i + dir;
+      if (j < 0 || j >= working.length) return;
+      var copy = working.slice();
+      var tmp = copy[i]; copy[i] = copy[j]; copy[j] = tmp;
+      working = copy;
+      writeSaved(working); emit();
+    },
+  };
+
+  window.SybProjects = Store;
+})();
+
+})();
+
+
 /* ===== icons.js ===== */
 (function () {
 /* Shared Lucide icon helper for the website kit. Exposes window.Ic */
@@ -5621,6 +5812,599 @@ window.HomeScreen = HomeScreen;
 })();
 
 
+/* ===== GalleryEditor.js ===== */
+(function () {
+/* Sybaris website — on-page Gallery editor (authoring tool, ?edit only).
+
+   Renders a drawer for adding / editing / removing kitchens and tagging them.
+   It mutates the projects store (projects.js); the existing "Save to project"
+   button persists the result to the backend. Photos can be uploaded from the
+   device (stored as data: URLs until saved, then decoded to files server-side)
+   or picked from photos already used elsewhere in the gallery.
+
+   Exposes window.GalleryEditor — a component with imperative .openNew() /
+   .openEdit(slug) helpers the Gallery grid calls. */
+(function () {
+  const {
+    useState,
+    useEffect,
+    useRef
+  } = React;
+
+  // Tiny external store so the Gallery grid's buttons can open the drawer that
+  // GalleryScreen renders.
+  let panel = {
+    open: false,
+    slug: null
+  };
+  let subs = [];
+  const setPanel = next => {
+    panel = next;
+    subs.forEach(f => {
+      try {
+        f(panel);
+      } catch (e) {}
+    });
+  };
+  const Field = ({
+    label,
+    children
+  }) => /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: 'block',
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      font: '600 11px/1 var(--font-sans, system-ui)',
+      letterSpacing: '0.14em',
+      textTransform: 'uppercase',
+      color: 'var(--text-muted, #8a8175)',
+      marginBottom: 7
+    }
+  }, label), children);
+  const inputCss = {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: '1px solid var(--line, #d2c9b6)',
+    background: 'var(--cream-50, #fff)',
+    color: 'var(--text-strong, #1a1916)',
+    font: '400 15px/1.4 var(--font-body, system-ui)'
+  };
+  function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+  function GalleryEditor({
+    onOpenProject
+  }) {
+    const Store = window.SybProjects;
+    const [p, setP] = useState(panel);
+    useEffect(() => {
+      subs.push(setP);
+      return () => {
+        subs = subs.filter(f => f !== p);
+      };
+    }, []);
+    const editing = p.open;
+    const existing = p.slug ? Store.get().find(x => x.slug === p.slug) : null;
+    const [form, setForm] = useState(null);
+    const [tagDraft, setTagDraft] = useState('');
+    const [showLib, setShowLib] = useState(false);
+    const fileRef = useRef(null);
+
+    // (Re)seed the form whenever the drawer opens for a different target.
+    useEffect(() => {
+      if (!editing) {
+        setForm(null);
+        return;
+      }
+      if (existing) {
+        setForm({
+          name: existing.name,
+          location: existing.location,
+          year: existing.year,
+          tags: (existing.tags || []).slice(),
+          blurb: existing.blurb,
+          photos: (existing.photos || []).slice()
+        });
+      } else {
+        setForm({
+          name: '',
+          location: '',
+          year: String(new Date().getFullYear()),
+          tags: [],
+          blurb: '',
+          photos: []
+        });
+      }
+      setTagDraft('');
+      setShowLib(false);
+    }, [editing, p.slug]);
+    if (!editing || !form) return null;
+    const set = (k, v) => setForm(f => Object.assign({}, f, {
+      [k]: v
+    }));
+    const close = () => setPanel({
+      open: false,
+      slug: null
+    });
+    const addTag = t => {
+      const v = String(t || '').trim();
+      if (!v) return;
+      if (form.tags.some(x => x.toLowerCase() === v.toLowerCase())) {
+        setTagDraft('');
+        return;
+      }
+      set('tags', form.tags.concat(v));
+      setTagDraft('');
+    };
+    const removeTag = t => set('tags', form.tags.filter(x => x !== t));
+    const onUpload = async e => {
+      const files = Array.from(e.target.files || []);
+      const urls = [];
+      for (const f of files) {
+        try {
+          urls.push(await readFileAsDataURL(f));
+        } catch (err) {}
+      }
+      if (urls.length) set('photos', form.photos.concat(urls));
+      if (fileRef.current) fileRef.current.value = '';
+    };
+    const removePhoto = i => set('photos', form.photos.filter((_, j) => j !== i));
+    const movePhoto = (i, dir) => {
+      const j = i + dir;
+      if (j < 0 || j >= form.photos.length) return;
+      const c = form.photos.slice();
+      const t = c[i];
+      c[i] = c[j];
+      c[j] = t;
+      set('photos', c);
+    };
+    const save = () => {
+      if (!form.name.trim()) {
+        alert('Give the kitchen a name first.');
+        return;
+      }
+      const payload = {
+        name: form.name.trim(),
+        location: form.location.trim(),
+        year: String(form.year).trim(),
+        tags: form.tags,
+        blurb: form.blurb.trim(),
+        photos: form.photos
+      };
+      let slug = p.slug;
+      if (existing) Store.update(p.slug, payload);else slug = Store.add(payload);
+      close();
+      // Remind the user their work isn't live until they press Save to project.
+      try {
+        const ev = new CustomEvent('syb:flash', {
+          detail: 'Kitchen saved locally — press “Save to project” to publish it.'
+        });
+        window.dispatchEvent(ev);
+      } catch (e) {}
+    };
+    const del = () => {
+      if (!existing) return;
+      if (!confirm('Remove “' + existing.name + '” from the gallery? Press “Save to project” afterwards to make it permanent.')) return;
+      Store.remove(p.slug);
+      close();
+    };
+
+    // Library = photos already used by kitchens (bare filenames → resolve to
+    // shipped gallery assets, so they work in every environment).
+    const library = (() => {
+      const seen = {},
+        out = [];
+      Store.get().forEach(proj => (proj.photos || []).forEach(ph => {
+        if (typeof ph === 'string' && !/^data:/.test(ph) && !seen[ph]) {
+          seen[ph] = 1;
+          out.push(ph);
+        }
+      }));
+      return out;
+    })();
+    const toggleLibPhoto = ph => {
+      if (form.photos.indexOf(ph) !== -1) removePhotoByValue(ph);else set('photos', form.photos.concat(ph));
+    };
+    const removePhotoByValue = ph => set('photos', form.photos.filter(x => x !== ph));
+    const thumb = src => ({
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      display: 'block'
+    });
+    return /*#__PURE__*/React.createElement("div", {
+      role: "dialog",
+      "aria-modal": "true",
+      style: {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1200,
+        background: 'rgba(20,16,10,.55)',
+        display: 'flex',
+        justifyContent: 'flex-end'
+      },
+      onClick: e => {
+        if (e.target === e.currentTarget) close();
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 'min(520px, 100%)',
+        height: '100%',
+        overflowY: 'auto',
+        background: 'var(--cream-100, #f6f2ea)',
+        boxShadow: '-20px 0 60px rgba(20,16,10,.35)',
+        padding: '22px 22px 40px'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 18
+      }
+    }, /*#__PURE__*/React.createElement("h2", {
+      style: {
+        font: '500 22px/1.1 var(--font-display, Georgia, serif)',
+        color: 'var(--text-strong, #1a1916)',
+        margin: 0
+      }
+    }, existing ? 'Edit kitchen' : 'Add a kitchen'), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: close,
+      "aria-label": "Close",
+      style: {
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        border: '1px solid var(--line,#d2c9b6)',
+        background: 'var(--cream-50,#fff)',
+        color: 'var(--text-strong,#1a1916)',
+        font: '500 18px/1 system-ui',
+        cursor: 'pointer'
+      }
+    }, "\xD7")), /*#__PURE__*/React.createElement(Field, {
+      label: "Name"
+    }, /*#__PURE__*/React.createElement("input", {
+      style: inputCss,
+      value: form.name,
+      onChange: e => set('name', e.target.value),
+      placeholder: "e.g. House van der Hoff"
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 14
+      }
+    }, /*#__PURE__*/React.createElement(Field, {
+      label: "Location"
+    }, /*#__PURE__*/React.createElement("input", {
+      style: inputCss,
+      value: form.location,
+      onChange: e => set('location', e.target.value),
+      placeholder: "e.g. Knysna"
+    })), /*#__PURE__*/React.createElement(Field, {
+      label: "Year"
+    }, /*#__PURE__*/React.createElement("input", {
+      style: inputCss,
+      value: form.year,
+      onChange: e => set('year', e.target.value),
+      placeholder: "2024"
+    }))), /*#__PURE__*/React.createElement(Field, {
+      label: "Tags"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 7,
+        marginBottom: 8
+      }
+    }, form.tags.map(t => /*#__PURE__*/React.createElement("span", {
+      key: t,
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '5px 8px 5px 11px',
+        borderRadius: 999,
+        background: 'var(--brass-500,#9a7b4f)',
+        color: '#fff',
+        font: '600 12px/1 var(--font-sans,system-ui)'
+      }
+    }, t, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => removeTag(t),
+      "aria-label": 'Remove ' + t,
+      style: {
+        border: 'none',
+        background: 'rgba(255,255,255,.25)',
+        color: '#fff',
+        width: 16,
+        height: 16,
+        borderRadius: 999,
+        cursor: 'pointer',
+        font: '600 11px/1 system-ui'
+      }
+    }, "\xD7")))), /*#__PURE__*/React.createElement("input", {
+      style: inputCss,
+      value: tagDraft,
+      onChange: e => setTagDraft(e.target.value),
+      onKeyDown: e => {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault();
+          addTag(tagDraft);
+        }
+      },
+      placeholder: "Type a tag and press Enter (e.g. Shaker)"
+    }), /*#__PURE__*/React.createElement(Suggestions, {
+      current: form.tags,
+      onPick: addTag
+    })), /*#__PURE__*/React.createElement(Field, {
+      label: "Description"
+    }, /*#__PURE__*/React.createElement("textarea", {
+      style: Object.assign({}, inputCss, {
+        minHeight: 90,
+        resize: 'vertical'
+      }),
+      value: form.blurb,
+      onChange: e => set('blurb', e.target.value),
+      placeholder: "A sentence or two about this kitchen."
+    })), /*#__PURE__*/React.createElement(Field, {
+      label: "Photos (first is the cover)"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: 8
+      }
+    }, form.photos.map((src, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        position: 'relative',
+        aspectRatio: '4/5',
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: i === 0 ? '2px solid var(--brass-500,#9a7b4f)' : '1px solid var(--line,#d2c9b6)'
+      }
+    }, /*#__PURE__*/React.createElement("img", {
+      src: Store.resolveImg(src),
+      alt: "",
+      style: thumb(src)
+    }), i === 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        position: 'absolute',
+        left: 4,
+        top: 4,
+        padding: '2px 6px',
+        borderRadius: 4,
+        background: 'var(--brass-500,#9a7b4f)',
+        color: '#fff',
+        font: '600 9px/1 system-ui',
+        letterSpacing: '.06em'
+      }
+    }, "COVER"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        justifyContent: 'space-between',
+        padding: 4,
+        gap: 4,
+        background: 'linear-gradient(transparent, rgba(0,0,0,.5))'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => movePhoto(i, -1),
+      disabled: i === 0,
+      title: "Move left",
+      style: miniBtn(i === 0)
+    }, "\u2039"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => removePhoto(i),
+      title: "Remove",
+      style: miniBtn(false)
+    }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => movePhoto(i, 1),
+      disabled: i === form.photos.length - 1,
+      title: "Move right",
+      style: miniBtn(i === form.photos.length - 1)
+    }, "\u203A"))))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        marginTop: 10,
+        flexWrap: 'wrap'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => fileRef.current && fileRef.current.click(),
+      style: ghostBtn
+    }, "\u2191 Upload photos"), library.length > 0 && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: () => setShowLib(s => !s),
+      style: ghostBtn
+    }, showLib ? 'Hide library' : 'Choose from library'), /*#__PURE__*/React.createElement("input", {
+      ref: fileRef,
+      type: "file",
+      accept: "image/*",
+      multiple: true,
+      onChange: onUpload,
+      style: {
+        display: 'none'
+      }
+    })), showLib && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: 6,
+        marginTop: 10,
+        maxHeight: 220,
+        overflowY: 'auto',
+        padding: 6,
+        background: 'var(--cream-200,#efe9dd)',
+        borderRadius: 8
+      }
+    }, library.map(ph => {
+      const on = form.photos.indexOf(ph) !== -1;
+      return /*#__PURE__*/React.createElement("button", {
+        key: ph,
+        type: "button",
+        onClick: () => toggleLibPhoto(ph),
+        style: {
+          position: 'relative',
+          aspectRatio: '1/1',
+          borderRadius: 6,
+          overflow: 'hidden',
+          border: on ? '2px solid var(--brass-500,#9a7b4f)' : '1px solid var(--line,#d2c9b6)',
+          padding: 0,
+          cursor: 'pointer'
+        }
+      }, /*#__PURE__*/React.createElement("img", {
+        src: Store.resolveImg(ph),
+        alt: "",
+        style: {
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          opacity: on ? 1 : 0.85
+        }
+      }), on && /*#__PURE__*/React.createElement("span", {
+        style: {
+          position: 'absolute',
+          right: 3,
+          top: 3,
+          background: 'var(--brass-500,#9a7b4f)',
+          color: '#fff',
+          width: 16,
+          height: 16,
+          borderRadius: 999,
+          font: '700 11px/16px system-ui',
+          textAlign: 'center'
+        }
+      }, "\u2713"));
+    }))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        marginTop: 24
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: save,
+      style: primaryBtn
+    }, existing ? 'Apply changes' : 'Add kitchen'), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: close,
+      style: ghostBtn
+    }, "Cancel"), existing && /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      onClick: del,
+      style: Object.assign({}, ghostBtn, {
+        marginLeft: 'auto',
+        color: '#b3402f',
+        borderColor: '#e3b7ae'
+      })
+    }, "Delete")), /*#__PURE__*/React.createElement("p", {
+      style: {
+        font: '400 12px/1.5 var(--font-sans,system-ui)',
+        color: 'var(--text-muted,#8a8175)',
+        marginTop: 16
+      }
+    }, "Changes preview instantly. They go live only when you press ", /*#__PURE__*/React.createElement("strong", null, "Save to project"), ".")));
+  }
+  function Suggestions({
+    current,
+    onPick
+  }) {
+    const Store = window.SybProjects;
+    const all = [];
+    const seen = {};
+    Store.get().forEach(p => (p.tags || []).forEach(t => {
+      const k = String(t).toLowerCase();
+      if (!seen[k]) {
+        seen[k] = 1;
+        all.push(t);
+      }
+    }));
+    const avail = all.filter(t => !current.some(c => c.toLowerCase() === t.toLowerCase())).slice(0, 12);
+    if (!avail.length) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginTop: 8
+      }
+    }, avail.map(t => /*#__PURE__*/React.createElement("button", {
+      key: t,
+      type: "button",
+      onClick: () => onPick(t),
+      style: {
+        padding: '4px 10px',
+        borderRadius: 999,
+        border: '1px dashed var(--line,#d2c9b6)',
+        background: 'transparent',
+        color: 'var(--text-body,#4a463d)',
+        font: '500 12px/1 var(--font-sans,system-ui)',
+        cursor: 'pointer'
+      }
+    }, "+ ", t)));
+  }
+  const primaryBtn = {
+    padding: '11px 20px',
+    borderRadius: 999,
+    border: 'none',
+    background: 'var(--accent,#1a1916)',
+    color: '#fff',
+    font: '600 13px/1 var(--font-sans,system-ui)',
+    letterSpacing: '.03em',
+    cursor: 'pointer'
+  };
+  const ghostBtn = {
+    padding: '10px 16px',
+    borderRadius: 999,
+    border: '1px solid var(--line,#d2c9b6)',
+    background: 'var(--cream-50,#fff)',
+    color: 'var(--text-strong,#1a1916)',
+    font: '600 13px/1 var(--font-sans,system-ui)',
+    cursor: 'pointer'
+  };
+  const miniBtn = disabled => ({
+    border: 'none',
+    background: 'rgba(255,255,255,.85)',
+    color: '#1a1916',
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.4 : 1,
+    font: '600 12px/1 system-ui'
+  });
+  GalleryEditor.openNew = () => setPanel({
+    open: true,
+    slug: null
+  });
+  GalleryEditor.openEdit = slug => setPanel({
+    open: true,
+    slug
+  });
+  window.GalleryEditor = GalleryEditor;
+})();
+})();
+
+
 /* ===== GalleryScreen.js ===== */
 (function () {
 /* Sybaris website — Gallery screen. Exposes window.GalleryScreen */
@@ -5633,17 +6417,35 @@ function GalleryScreen({
     Tag,
     ProjectCard
   } = window.SybarisDesignSystem_c8b90c;
-  const projects = window.SYBARIS_PROJECTS;
+  const Store = window.SybProjects;
+  // Re-render whenever the projects store changes (the editor mutates it live).
+  const [, force] = React.useState(0);
+  React.useEffect(() => Store.subscribe(() => force(n => n + 1)), []);
+  const projects = Store.get();
   const [filter, setFilter] = React.useState('All');
-  // Gallery intro copy and filter chips come from content.js (gallery.*).
+  // Gallery intro copy comes from content.js (gallery.*); the filter chips are
+  // derived from the tags actually used by the kitchens (see projects.js).
   const C = window.SITE_CONTENT.gallery;
-  const FILTERS = C.filters;
+  const FILTERS = Store.deriveFilters();
+  // If the active filter no longer exists (a tag was removed), fall back to All.
+  React.useEffect(() => {
+    if (FILTERS.indexOf(filter) === -1) setFilter('All');
+  }, [FILTERS.join('|')]);
   const matches = p => {
     if (filter === 'All') return true;
-    const hay = (p.category + ' ' + p.materials.join(' ')).toLowerCase();
-    return hay.includes(filter.toLowerCase());
+    return (p.tags || []).some(t => String(t).toLowerCase() === filter.toLowerCase());
   };
   const shown = projects.filter(matches);
+
+  // Edit mode: the on-page editor (only present with ?edit) toggles this store.
+  const [editOn, setEditOn] = React.useState(() => !!(window.__sybImgEdit && window.__sybImgEdit.on));
+  React.useEffect(() => {
+    if (!window.__sybImgEdit) return;
+    setEditOn(window.__sybImgEdit.on);
+    return window.__sybImgEdit.subscribe(setEditOn);
+  }, []);
+  const Editor = window.GalleryEditor;
+  const showEditing = editOn && Editor;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'var(--cream-100)'
@@ -5730,16 +6532,66 @@ function GalleryScreen({
       gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
       gap: '34px 30px'
     }
-  }, shown.map((p, i) => /*#__PURE__*/React.createElement(ProjectCard, {
+  }, showEditing && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => Editor.openNew(),
+    style: {
+      aspectRatio: '4 / 5',
+      borderRadius: 'var(--radius-xs)',
+      border: '2px dashed var(--line)',
+      background: 'var(--cream-50)',
+      color: 'var(--text-accent)',
+      cursor: 'pointer',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      font: '600 14px/1.3 var(--font-sans)',
+      letterSpacing: '0.04em'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 34,
+      fontWeight: 300,
+      lineHeight: 1
+    }
+  }, "+"), "Add kitchen"), shown.map(p => /*#__PURE__*/React.createElement("div", {
     key: p.slug,
-    image: IMG_G + p.hero,
+    style: {
+      position: 'relative'
+    }
+  }, /*#__PURE__*/React.createElement(ProjectCard, {
+    image: Store.resolveImg(p.hero),
     slotId: `gallery-${p.slug}`,
     category: p.category,
     title: p.name,
-    location: `${p.location} · ${p.year}`,
+    location: `${p.location}${p.location && p.year ? ' · ' : ''}${p.year}`,
     ratio: "4 / 5",
     onClick: () => onProject(p.slug)
-  })))));
+  }), showEditing && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: e => {
+      e.stopPropagation();
+      Editor.openEdit(p.slug);
+    },
+    style: {
+      position: 'absolute',
+      top: 10,
+      right: 10,
+      zIndex: 3,
+      padding: '7px 13px',
+      borderRadius: 999,
+      border: '1px solid rgba(255,255,255,.25)',
+      background: 'rgba(20,16,10,.82)',
+      color: '#FBF9F4',
+      font: '600 12px/1 system-ui,sans-serif',
+      cursor: 'pointer',
+      backdropFilter: 'blur(4px)'
+    }
+  }, "Edit"))))), showEditing && /*#__PURE__*/React.createElement(Editor, {
+    onOpenProject: onProject
+  }));
 }
 window.GalleryScreen = GalleryScreen;
 })();
@@ -5762,7 +6614,8 @@ function ProjectScreen({
     ImageSlot
   } = window.SybarisDesignSystem_c8b90c;
   const Ic = window.Ic;
-  const projects = window.SYBARIS_PROJECTS;
+  const R = window.SybProjects.resolveImg;
+  const projects = window.SybProjects.get();
   const idx = Math.max(0, projects.findIndex(p => p.slug === slug));
   const p = projects[idx];
   const next = projects[(idx + 1) % projects.length];
@@ -5791,7 +6644,7 @@ function ProjectScreen({
     }
   }, /*#__PURE__*/React.createElement(ImageSlot, {
     id: `proj-${p.slug}-hero`,
-    src: IMG + p.hero,
+    src: R(p.hero),
     alt: p.name,
     style: {
       position: 'absolute',
@@ -5956,7 +6809,7 @@ function ProjectScreen({
       flexDirection: 'column',
       gap: 30
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, imgs[0] && /*#__PURE__*/React.createElement("div", {
     style: {
       aspectRatio: '16 / 10',
       overflow: 'hidden',
@@ -5964,7 +6817,7 @@ function ProjectScreen({
     }
   }, /*#__PURE__*/React.createElement(ImageSlot, {
     id: `proj-${p.slug}-img-0`,
-    src: IMG + imgs[0]
+    src: R(imgs[0])
   })), imgs.length > 1 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
@@ -5980,7 +6833,7 @@ function ProjectScreen({
     }
   }, /*#__PURE__*/React.createElement(ImageSlot, {
     id: `proj-${p.slug}-img-${i + 1}`,
-    src: IMG + src
+    src: R(src)
   })))), imgs[3] && /*#__PURE__*/React.createElement("div", {
     style: {
       aspectRatio: '16 / 9',
@@ -5989,7 +6842,7 @@ function ProjectScreen({
     }
   }, /*#__PURE__*/React.createElement(ImageSlot, {
     id: `proj-${p.slug}-img-3`,
-    src: IMG + imgs[3]
+    src: R(imgs[3])
   })))), /*#__PURE__*/React.createElement("section", {
     style: {
       background: 'var(--ink-900)',
@@ -7155,94 +8008,11 @@ window.__overridesReady = false;
   // When served by any real server (the local edit server below, or once
   // deployed to Netlify/Vercel), the live JSON files are fetched instead, so
   // edits made and saved through ?edit show up without re-exporting anything.
-  var EMBEDDED_IMAGE_OVERRIDES = {
-  "home-feat-everson": {
-    "src": "assets/uploads/edit-home-feat-everson.jpg",
-    "x": 33.15789473684208,
-    "y": 70.21052631578947
-  },
-  "team-4": {
-    "src": "assets/uploads/edit-team-4.jpg",
-    "x": 50,
-    "y": 50
-  },
-  "team-5": {
-    "src": "assets/uploads/edit-team-5.jpg",
-    "x": 58.08080602575228,
-    "y": 94.44444444444433
-  },
-  "home-feat-van-der-hoff": {
-    "src": "assets/uploads/edit-home-feat-van-der-hoff.jpg",
-    "x": 94.47368421052632,
-    "y": 100
-  },
-  "gallery-vogel": {
-    "src": "assets/uploads/edit-gallery-vogel.jpg",
-    "x": 50,
-    "y": 50
-  },
-  "home-statement": {
-    "src": "assets/uploads/edit-home-statement.jpg",
-    "x": 59.81338575746019,
-    "y": 50.450693645689064
-  },
-  "team-0": {
-    "src": "assets/uploads/edit-team-0.jpg",
-    "x": 50,
-    "y": 50
-  },
-  "team-6": {
-    "src": "assets/uploads/edit-team-6.jpg",
-    "x": 90.40396231192133,
-    "y": 100
-  },
-  "home-feat-blakemore": {
-    "src": "assets/uploads/edit-home-feat-blakemore.jpg",
-    "x": 50,
-    "y": 50
-  },
-  "team-7": {
-    "src": "assets/uploads/edit-team-7.jpg",
-    "x": 59.76431387442131,
-    "y": 100
-  },
-  "team-3": {
-    "src": "assets/uploads/edit-team-3.jpg",
-    "x": 50,
-    "y": 50
-  },
-  "gallery-metelerkamp": {
-    "src": "assets/uploads/edit-gallery-metelerkamp.jpg",
-    "x": 0.3276103251689189,
-    "y": 87.73955693975225
-  },
-  "home-quote": {
-    "src": "assets/uploads/edit-home-quote.jpg",
-    "x": 51.55325443786987,
-    "y": 65.00000000000003
-  },
-  "team-1": {
-    "src": "assets/uploads/edit-team-1.jpg",
-    "x": 51.68350784866898,
-    "y": 32.05387369791668
-  },
-  "team-2": {
-    "src": "assets/uploads/edit-team-2.jpg",
-    "x": 50,
-    "y": 50
-  },
-  "gallery-miller": {
-    "src": "assets/uploads/edit-gallery-miller.jpg",
-    "x": 19.86077385979728,
-    "y": 53.669130067567586
-  }
-};
-  var EMBEDDED_TEXT_OVERRIDES = {
-  "craft.team.body": "We are a team of designers, cabinetmakers and finishers — the same people you’ll work with from the first sketch to the final fitting.",
-  "craft.team.members.4.role": "DRAUGHTSMAN"
-};
+  var EMBEDDED_IMAGE_OVERRIDES = {};
+  var EMBEDDED_TEXT_OVERRIDES = {};
+  var EMBEDDED_PROJECTS = [];
 
-  function seed(imageOverrides, textOverrides) {
+  function seed(imageOverrides, textOverrides, projects) {
     Object.keys(imageOverrides || {}).forEach(function (id) {
       var st = imageOverrides[id]; if (!st) return;
       try { localStorage.setItem('sybaris:img:' + id, JSON.stringify({ src: st.src || null, x: st.x, y: st.y })); } catch (e) {}
@@ -7252,12 +8022,19 @@ window.__overridesReady = false;
       if (typeof v !== 'string') return;
       try { localStorage.setItem('sybaris:txt:' + id, v); } catch (e) {}
     });
+    // A non-empty saved projects list replaces the built-in default; an empty
+    // one leaves any in-progress local edits alone.
+    if (Array.isArray(projects) && projects.length) {
+      try { localStorage.setItem('sybaris:projects', JSON.stringify(projects)); } catch (e) {}
+      if (window.SybProjects) { try { window.SybProjects.setAll(projects, { silentSave: true }); } catch (e) {} }
+    }
   }
 
   var imgFetch = fetch('_image-overrides.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
   var txtFetch = fetch('_content-overrides.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
-  Promise.all([imgFetch, txtFetch]).then(function (results) {
-    seed(results[0] || EMBEDDED_IMAGE_OVERRIDES, results[1] || EMBEDDED_TEXT_OVERRIDES);
+  var projFetch = fetch('_projects-overrides.json', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  Promise.all([imgFetch, txtFetch, projFetch]).then(function (results) {
+    seed(results[0] || EMBEDDED_IMAGE_OVERRIDES, results[1] || EMBEDDED_TEXT_OVERRIDES, results[2] || EMBEDDED_PROJECTS);
   }).finally(function () { window.__overridesReady = true; });
 
   function init() {
@@ -7277,6 +8054,7 @@ window.__overridesReady = false;
     btn.addEventListener('click', function () {
       var edits = {};
       var textEdits = {};
+      var projects = null;
       for (var i = 0; i < localStorage.length; i++) {
         var k = localStorage.key(i);
         if (k && k.indexOf('sybaris:img:') === 0) {
@@ -7285,18 +8063,32 @@ window.__overridesReady = false;
           textEdits[k.slice(12)] = localStorage.getItem(k);
         }
       }
-      if (!Object.keys(edits).length && !Object.keys(textEdits).length) { say('Nothing to save yet'); return; }
+      try { var pr = localStorage.getItem('sybaris:projects'); if (pr) { var pa = JSON.parse(pr); if (Array.isArray(pa)) projects = pa; } } catch (e) {}
+      if (!Object.keys(edits).length && !Object.keys(textEdits).length && !projects) { say('Nothing to save yet'); return; }
       var label = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
       // The password the editor-access prompt verified is cached for this tab
       // session (see EditGate in app-inline.jsx) — sent here so the save
       // endpoint can re-check it server-side. It's the server check that's
       // load-bearing; this is just what lets a real edit actually go through.
       var pw = null; try { pw = sessionStorage.getItem('sybaris:editpw'); } catch (e) {}
-      fetch('/__save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits: edits, textEdits: textEdits, password: pw }) })
+      var body = { edits: edits, textEdits: textEdits, password: pw };
+      if (projects) body.projects = projects;
+      fetch('/__save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
         .then(function (res) {
           var d = res.d;
-          if (d && d.ok) { say('Saved ' + d.saved + ' image' + (d.saved === 1 ? '' : 's') + ' and ' + d.savedText + ' text change' + (d.savedText === 1 ? '' : 's') + ' ✓', '#5e6b4f'); return; }
+          if (d && d.ok) {
+            // The server echoes back the saved projects with any uploaded
+            // photos turned into real file URLs — adopt them so the data:
+            // URLs don't linger in localStorage (and bloat future saves).
+            if (d.projects && window.SybProjects) { try { window.SybProjects.setAll(d.projects); } catch (e) {} }
+            var bits = [];
+            if (d.saved) bits.push(d.saved + ' image' + (d.saved === 1 ? '' : 's'));
+            if (d.savedText) bits.push(d.savedText + ' text change' + (d.savedText === 1 ? '' : 's'));
+            if (typeof d.savedProjects === 'number') bits.push(d.savedProjects + ' kitchen' + (d.savedProjects === 1 ? '' : 's'));
+            say('Saved ' + (bits.join(', ') || 'changes') + ' ✓', '#5e6b4f');
+            return;
+          }
           if (res.status === 401) {
             try { sessionStorage.removeItem('sybaris:editpw_ok'); sessionStorage.removeItem('sybaris:editpw'); } catch (e) {}
             say('Incorrect password — reload the page to try again', '#b3402f');

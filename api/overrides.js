@@ -18,6 +18,19 @@ async function migrateInlineUploads(state) {
       changed = true;
     }
   }
+  // Same self-heal for any kitchen photos still stored inline as data: URLs.
+  const projects = Array.isArray(state.projects) ? state.projects : [];
+  for (let i = 0; i < projects.length; i++) {
+    const p = projects[i];
+    const photos = Array.isArray(p.photos) ? p.photos : [];
+    for (let j = 0; j < photos.length; j++) {
+      if (typeof photos[j] === "string" && photos[j].startsWith("data:")) {
+        photos[j] = await storeUploadedImage((p.slug || ("kitchen-" + i)) + "-" + j, photos[j]);
+        changed = true;
+      }
+    }
+    if (changed) { p.hero = photos[0] || ""; p.images = photos; }
+  }
   if (changed) await writeState(state);
   return state;
 }
@@ -32,5 +45,9 @@ module.exports = async (req, res) => {
     // than breaking the page load.
   }
   res.setHeader("Cache-Control", "no-store");
-  res.status(200).json(type === "text" ? (state.text || {}) : (state.images || {}));
+  let body;
+  if (type === "text") body = state.text || {};
+  else if (type === "projects") body = Array.isArray(state.projects) ? state.projects : [];
+  else body = state.images || {};
+  res.status(200).json(body);
 };

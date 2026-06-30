@@ -23,15 +23,48 @@ async function storeUploadedImage(slot, dataUrl) {
   return blob.url;
 }
 
+// Normalise one kitchen for storage: decode any uploaded (data: URL) photos
+// into real blob files, then re-derive the legacy fields the site still reads
+// (hero/images/materials/category) from the canonical tags/photos.
+async function processProject(proj, index) {
+  proj = proj || {};
+  const tags = Array.isArray(proj.tags) ? proj.tags : (Array.isArray(proj.materials) ? proj.materials : []);
+  const rawPhotos = Array.isArray(proj.photos) ? proj.photos : (Array.isArray(proj.images) ? proj.images : (proj.hero ? [proj.hero] : []));
+  const slug = String(proj.slug || ("kitchen-" + index)).replace(/[^A-Za-z0-9_-]/g, "_") || ("kitchen-" + index);
+  const photos = [];
+  let n = 0;
+  for (const ph of rawPhotos) {
+    if (typeof ph === "string" && ph.startsWith("data:")) {
+      photos.push(await storeUploadedImage(slug + "-" + (n++), ph));
+    } else if (typeof ph === "string" && ph) {
+      photos.push(ph);
+    }
+  }
+  return {
+    slug: proj.slug || ("kitchen-" + index),
+    name: proj.name || "Untitled kitchen",
+    location: proj.location || "",
+    year: proj.year != null ? String(proj.year) : "",
+    tags: tags,
+    blurb: proj.blurb || "",
+    photos: photos,
+    // legacy mirrors
+    category: proj.category || tags[0] || "",
+    materials: tags,
+    hero: photos[0] || "",
+    images: photos,
+  };
+}
+
 async function readState() {
   try {
     const info = await head(BLOB_PATH);
     const res = await fetch(info.url, { cache: "no-store" });
-    if (!res.ok) return { images: {}, text: {} };
+    if (!res.ok) return { images: {}, text: {}, projects: [] };
     return await res.json();
   } catch (err) {
     // No blob saved yet (first run) or not configured — treat as empty state.
-    return { images: {}, text: {} };
+    return { images: {}, text: {}, projects: [] };
   }
 }
 
@@ -43,4 +76,4 @@ async function writeState(state) {
   });
 }
 
-module.exports = { readState, writeState, storeUploadedImage };
+module.exports = { readState, writeState, storeUploadedImage, processProject };

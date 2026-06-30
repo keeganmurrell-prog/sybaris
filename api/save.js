@@ -4,7 +4,7 @@
 // password prompt is only a UX convenience; this check is what actually
 // protects the live site, and it runs on every save regardless of what the
 // client believes its own unlock state is.
-const { readState, writeState, storeUploadedImage } = require("./_store");
+const { readState, writeState, storeUploadedImage, processProject } = require("./_store");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -27,6 +27,7 @@ module.exports = async (req, res) => {
 
   const edits = (payload.edits && typeof payload.edits === "object") ? payload.edits : {};
   const textEdits = (payload.textEdits && typeof payload.textEdits === "object") ? payload.textEdits : {};
+  const hasProjects = Array.isArray(payload.projects);
 
   try {
     const current = await readState();
@@ -49,9 +50,26 @@ module.exports = async (req, res) => {
       if (typeof val === "string") text[key] = val;
     }
 
-    await writeState({ images, text });
+    // Projects: decode any uploaded photos to files and normalise. Only touch
+    // the stored list when the client actually sent one.
+    let projects = Array.isArray(current.projects) ? current.projects : [];
+    if (hasProjects) {
+      const out = [];
+      for (let i = 0; i < payload.projects.length; i++) {
+        out.push(await processProject(payload.projects[i], i));
+      }
+      projects = out;
+    }
 
-    res.status(200).json({ ok: true, saved: Object.keys(edits).length, savedText: Object.keys(textEdits).length });
+    await writeState({ images, text, projects });
+
+    res.status(200).json({
+      ok: true,
+      saved: Object.keys(edits).length,
+      savedText: Object.keys(textEdits).length,
+      savedProjects: hasProjects ? projects.length : undefined,
+      projects: hasProjects ? projects : undefined,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: "Storage error: " + (err && err.message) });
   }
