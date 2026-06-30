@@ -5910,6 +5910,7 @@ window.HomeScreen = HomeScreen;
           name: existing.name,
           location: existing.location,
           year: existing.year,
+          category: existing.category || '',
           tags: (existing.tags || []).slice(),
           blurb: existing.blurb,
           photos: (existing.photos || []).slice()
@@ -5919,6 +5920,7 @@ window.HomeScreen = HomeScreen;
           name: '',
           location: '',
           year: String(new Date().getFullYear()),
+          category: '',
           tags: [],
           blurb: '',
           photos: []
@@ -5976,6 +5978,7 @@ window.HomeScreen = HomeScreen;
         name: form.name.trim(),
         location: form.location.trim(),
         year: String(form.year).trim(),
+        category: form.category.trim(),
         tags: form.tags,
         blurb: form.blurb.trim(),
         photos: form.photos
@@ -6147,6 +6150,13 @@ window.HomeScreen = HomeScreen;
     }), /*#__PURE__*/React.createElement(Suggestions, {
       current: form.tags,
       onPick: addTag
+    })), /*#__PURE__*/React.createElement(Field, {
+      label: "Style label (shown above the name)"
+    }, /*#__PURE__*/React.createElement("input", {
+      style: inputCss,
+      value: form.category,
+      onChange: e => set('category', e.target.value),
+      placeholder: form.tags[0] ? 'Defaults to “' + form.tags[0] + '”' : 'e.g. In-frame oak'
     })), /*#__PURE__*/React.createElement(Field, {
       label: "Description"
     }, /*#__PURE__*/React.createElement("textarea", {
@@ -6671,6 +6681,10 @@ function ProjectScreen({
       margin: '0 auto',
       width: '100%'
     }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 22
+    }
   }, /*#__PURE__*/React.createElement("a", {
     onClick: () => onNav('gallery'),
     style: {
@@ -6683,7 +6697,6 @@ function ProjectScreen({
       letterSpacing: '0.16em',
       textTransform: 'uppercase',
       color: 'var(--cream-100)',
-      marginBottom: 22,
       opacity: 0.9
     }
   }, /*#__PURE__*/React.createElement(Ic, {
@@ -6693,13 +6706,13 @@ function ProjectScreen({
   }), " ", /*#__PURE__*/React.createElement(EditableText, {
     id: "projectDetail.backToGalleryLabel",
     text: C.backToGalleryLabel
-  })), /*#__PURE__*/React.createElement(Overline, {
+  }))), p.category ? /*#__PURE__*/React.createElement(Overline, {
     tone: "inverse",
     style: {
       marginBottom: 14,
       color: 'var(--cream-200)'
     }
-  }, p.category), /*#__PURE__*/React.createElement("h1", {
+  }, p.category) : null, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontFamily: 'var(--font-display)',
       fontWeight: 400,
