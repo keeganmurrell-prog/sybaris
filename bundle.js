@@ -722,6 +722,19 @@ function ImageSlot({
   };
   const current = dataUrl || src;
   const customised = !!dataUrl || pos.x !== 50 || pos.y !== 50 || pos.z && pos.z !== 1;
+
+  // `object-position` crops the image BEFORE any transform runs, so on an axis
+  // where cover-fit already leaves zero slack (e.g. a portrait photo in a
+  // portrait frame) scaling alone can't create new pan room — it just
+  // magnifies the same fixed crop. Pair the zoom with a translate that reaches
+  // into the extra space the zoom creates: translate() percentages resolve
+  // against the element's own pre-scale box, and — nested inside scale() —
+  // the visual distance it covers is also multiplied by the zoom, so the two
+  // combined exactly span the new overscan with no gaps.
+  const zoom = pos.z || 1;
+  const panReach = (zoom - 1) / zoom;
+  const tx = (50 - pos.x) * panReach;
+  const ty = (50 - pos.y) * panReach;
   const openLibrary = () => {
     if (window.__sybImgLib) window.__sybImgLib.openFor(id);
   };
@@ -920,7 +933,7 @@ function ImageSlot({
       objectFit,
       objectPosition: `${pos.x}% ${pos.y}%`,
       display: 'block',
-      transform: pos.z && pos.z !== 1 ? `scale(${pos.z})` : undefined,
+      transform: zoom !== 1 ? `scale(${zoom}) translate(${tx}%, ${ty}%)` : undefined,
       transformOrigin: 'center center',
       transition: dragging ? 'none' : 'transform var(--dur-fast, 180ms) var(--ease-out, ease)',
       userSelect: 'none',
