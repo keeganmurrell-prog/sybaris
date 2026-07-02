@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
         if (typeof src === "string" && src.startsWith("data:")) {
           src = await storeUploadedImage(slot, src);
         }
-        images[slot] = { src: src, x: st.x, y: st.y };
+        images[slot] = { src: src, x: st.x, y: st.y, z: st.z };
       }
     }
 

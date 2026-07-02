@@ -8503,7 +8503,7 @@ window.__overridesReady = false;
   function seed(imageOverrides, textOverrides, projects) {
     Object.keys(imageOverrides || {}).forEach(function (id) {
       var st = imageOverrides[id]; if (!st) return;
-      try { localStorage.setItem('sybaris:img:' + id, JSON.stringify({ src: st.src || null, x: st.x, y: st.y })); } catch (e) {}
+      try { localStorage.setItem('sybaris:img:' + id, JSON.stringify({ src: st.src || null, x: st.x, y: st.y, z: st.z })); } catch (e) {}
     });
     Object.keys(textOverrides || {}).forEach(function (id) {
       var v = textOverrides[id];
@@ -8546,7 +8546,7 @@ window.__overridesReady = false;
       for (var i = 0; i < localStorage.length; i++) {
         var k = localStorage.key(i);
         if (k && k.indexOf('sybaris:img:') === 0) {
-          try { var v = JSON.parse(localStorage.getItem(k)); edits[k.slice(12)] = { src: v.src || null, x: v.x, y: v.y }; } catch (e) {}
+          try { var v = JSON.parse(localStorage.getItem(k)); edits[k.slice(12)] = { src: v.src || null, x: v.x, y: v.y, z: v.z }; } catch (e) {}
         } else if (k && k.indexOf('sybaris:txt:') === 0) {
           textEdits[k.slice(12)] = localStorage.getItem(k);
         }

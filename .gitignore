@@ -3,3 +3,6 @@
 
 # Dependencies (Vercel installs these during deploy)
 node_modules
+
+.vercel
+.env*
