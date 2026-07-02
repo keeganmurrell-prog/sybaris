@@ -581,37 +581,45 @@ function loadState(key) {
   if (!key) return {
     src: null,
     x: 50,
-    y: 50
+    y: 50,
+    z: 1
   };
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return {
       src: null,
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     };
     if (raw[0] === '{') {
       const o = JSON.parse(raw);
       return {
         src: o.src || null,
         x: typeof o.x === 'number' ? o.x : 50,
-        y: typeof o.y === 'number' ? o.y : 50
+        y: typeof o.y === 'number' ? o.y : 50,
+        z: typeof o.z === 'number' ? o.z : 1
       };
     }
     // legacy: bare data URL
     return {
       src: raw,
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     };
   } catch (e) {
     return {
       src: null,
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     };
   }
 }
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.2;
 
 /**
  * Sybaris ImageSlot — a drag-and-drop image frame. Shows `src` by default. When
@@ -640,7 +648,7 @@ function ImageSlot({
   const [dataUrl, setDataUrl] = React.useState(() => loadState(key).src);
   const [pos, setPos] = React.useState(() => {
     const st = loadState(key);
-    return { x: st.x, y: st.y };
+    return { x: st.x, y: st.y, z: st.z };
   });
   const [over, setOver] = React.useState(false);
   const [hover, setHover] = React.useState(false);
@@ -650,7 +658,8 @@ function ImageSlot({
   const dataUrlRef = React.useRef(null);
   const posRef = React.useRef({
     x: 50,
-    y: 50
+    y: 50,
+    z: 1
   });
 
   // Load any persisted state for this id
@@ -659,12 +668,14 @@ function ImageSlot({
     dataUrlRef.current = st.src;
     posRef.current = {
       x: st.x,
-      y: st.y
+      y: st.y,
+      z: st.z
     };
     setDataUrl(st.src);
     setPos({
       x: st.x,
-      y: st.y
+      y: st.y,
+      z: st.z
     });
     // Migrate any oversized stored upload down to a storage-friendly size so it
     // stops hogging quota and blocking future saves.
@@ -677,7 +688,8 @@ function ImageSlot({
             window.localStorage.setItem(key, JSON.stringify({
               src: small,
               x: posRef.current.x,
-              y: posRef.current.y
+              y: posRef.current.y,
+              z: posRef.current.z
             }));
           } catch (e) {/* quota */}
         }
@@ -702,13 +714,14 @@ function ImageSlot({
       const st = {
         src: dataUrlRef.current,
         x: posRef.current.x,
-        y: posRef.current.y
+        y: posRef.current.y,
+        z: posRef.current.z
       };
-      if (!st.src && st.x === 50 && st.y === 50) window.localStorage.removeItem(key);else window.localStorage.setItem(key, JSON.stringify(st));
+      if (!st.src && st.x === 50 && st.y === 50 && (!st.z || st.z === 1)) window.localStorage.removeItem(key);else window.localStorage.setItem(key, JSON.stringify(st));
     } catch (e) {/* quota */}
   };
   const current = dataUrl || src;
-  const customised = !!dataUrl || pos.x !== 50 || pos.y !== 50;
+  const customised = !!dataUrl || pos.x !== 50 || pos.y !== 50 || pos.z && pos.z !== 1;
   const openLibrary = () => {
     if (window.__sybImgLib) window.__sybImgLib.openFor(id);
   };
@@ -748,12 +761,14 @@ function ImageSlot({
     dataUrlRef.current = newSrc;
     posRef.current = {
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     };
     setDataUrl(newSrc);
     setPos({
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     });
     persist();
     if (onChange) onChange(newSrc);
@@ -773,12 +788,14 @@ function ImageSlot({
     dataUrlRef.current = null;
     posRef.current = {
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     };
     setDataUrl(null);
     setPos({
       x: 50,
-      y: 50
+      y: 50,
+      z: 1
     });
     if (key) {
       try {
@@ -786,6 +803,18 @@ function ImageSlot({
       } catch (e2) {/* ignore */}
     }
     if (onChange) onChange(null);
+  };
+
+  /** Sets zoom (1 = fit, up to ZOOM_MAX) and persists it immediately — used by
+   * the zoom buttons and by pinch/ctrl-scroll on the frame. */
+  const setZoom = nextZ => {
+    const z = clamp(nextZ, ZOOM_MIN, ZOOM_MAX);
+    posRef.current = {
+      ...posRef.current,
+      z
+    };
+    setPos(posRef.current);
+    persist();
   };
 
   /* ---- pointer: drag-to-pan, click-to-replace ---- */
@@ -817,6 +846,7 @@ function ImageSlot({
     d.lastY = e.clientY;
     if (d.moved && current) {
       setPos(p => ({
+        ...p,
         x: clamp(p.x - dx / d.rect.width * 100, 0, 100),
         y: clamp(p.y - dy / d.rect.height * 100, 0, 100)
       }));
@@ -833,6 +863,14 @@ function ImageSlot({
     onPointerDown,
     onPointerMove,
     onPointerUp,
+    // Pinch-to-zoom (trackpad) and ctrl/cmd+scroll report as wheel events with
+    // ctrlKey true — only intercept those, so ordinary page scrolling over the
+    // frame is left alone.
+    onWheel: e => {
+      if (!current || !e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((posRef.current.z || 1) - e.deltaY * 0.01);
+    },
     onClick: e => {
       e.stopPropagation();
       e.preventDefault();
@@ -882,6 +920,9 @@ function ImageSlot({
       objectFit,
       objectPosition: `${pos.x}% ${pos.y}%`,
       display: 'block',
+      transform: pos.z && pos.z !== 1 ? `scale(${pos.z})` : undefined,
+      transformOrigin: 'center center',
+      transition: dragging ? 'none' : 'transform var(--dur-fast, 180ms) var(--ease-out, ease)',
       userSelect: 'none',
       WebkitUserDrag: 'none',
       ...imgStyle
@@ -957,7 +998,60 @@ function ImageSlot({
       padding: 0,
       justifyContent: 'center'
     }
-  }, /*#__PURE__*/React.createElement(ResetGlyph, null))), interactive && !hover && !over && !dragging && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(ResetGlyph, null))), interactive && current && (hover || over) && !dragging && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      bottom: 10,
+      left: 10,
+      display: 'flex',
+      alignItems: 'stretch',
+      zIndex: 3
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: "Zoom out",
+    onPointerDown: e => e.stopPropagation(),
+    onClick: e => {
+      e.stopPropagation();
+      e.preventDefault();
+      setZoom((pos.z || 1) - ZOOM_STEP);
+    },
+    style: {
+      ...btnStyle,
+      width: 30,
+      padding: 0,
+      justifyContent: 'center',
+      borderRadius: 'var(--radius-pill) 0 0 var(--radius-pill)',
+      fontSize: 16,
+      lineHeight: 1
+    }
+  }, "−"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...pillStyle,
+      borderRadius: 0,
+      padding: '0 10px',
+      minWidth: 42,
+      justifyContent: 'center'
+    }
+  }, `${Math.round((pos.z || 1) * 100)}%`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    title: "Zoom in",
+    onPointerDown: e => e.stopPropagation(),
+    onClick: e => {
+      e.stopPropagation();
+      e.preventDefault();
+      setZoom((pos.z || 1) + ZOOM_STEP);
+    },
+    style: {
+      ...btnStyle,
+      width: 30,
+      padding: 0,
+      justifyContent: 'center',
+      borderRadius: '0 var(--radius-pill) var(--radius-pill) 0',
+      fontSize: 16,
+      lineHeight: 1
+    }
+  }, "+")), interactive && !hover && !over && !dragging && /*#__PURE__*/React.createElement("div", {
     style: {
       position: 'absolute',
       top: 10,
@@ -4004,10 +4098,17 @@ window.SITE_CONTENT = {
       headingPlain: 'From conversation to ',
       headingItalic: 'completed kitchen.',
     },
+    // Full seven-stage commission journey, shown as a scroll-linked timeline
+    // (see CraftTimeline in ExtraScreens.jsx). Add, remove or reorder freely —
+    // the timeline lays itself out for however many steps are here.
     steps: [
-      { number: '01', title: 'Design', body: 'We begin in your home, then draw the kitchen around how you live — proportion, light, and the way you move through the room.' },
-      { number: '02', title: 'Make', body: 'Cabinetry is built to order in our workshop: solid timber, dovetailed boxes, hand-applied finishes. Nothing is flat-packed.' },
-      { number: '03', title: 'Install', body: 'Our own team fits every kitchen, scribing each piece to the building and finishing on site to the millimetre.' },
+      { number: '01', title: 'Consultation', body: 'We begin with a conversation — in your home or our workshop — to understand exactly how you live and what you need from the space.' },
+      { number: '02', title: 'Design Development', body: 'We develop a considered design and a transparent quotation, drawn entirely around the brief we’ve taken.' },
+      { number: '03', title: 'Present Design', body: 'You return to the workshop for the reveal. We walk you through the concept, the materials and the detail — refining together until it’s right.' },
+      { number: '04', title: 'Approval & Order', body: 'Once the design is exactly as you want it, we confirm the order and reserve your place in the workshop.' },
+      { number: '05', title: 'Site Survey', body: 'Our survey manager measures every millimetre on site, so what we build fits as though the room was made for it.' },
+      { number: '06', title: 'Handcraft', body: 'Cabinetry is built to order in our workshop: solid timber, dovetailed boxes, hand-applied finishes. Nothing is flat-packed.' },
+      { number: '07', title: 'Installation', body: 'Our own team fits every kitchen, scribing each piece to the building and finishing on site to the millimetre.' },
     ],
     featureImage: 'assets/gallery/vogel-01.jpg',
     closingCta: {
@@ -5147,7 +5248,7 @@ function Header({
     src: solid ? C.logoDark : C.logoLight,
     alt: "Sybaris",
     style: {
-      height: 26,
+      height: 34,
       width: 'auto'
     }
   })), isMobile ? /*#__PURE__*/React.createElement("button", {
@@ -5327,7 +5428,7 @@ function Footer({
     src: NAVC.logoLight,
     alt: "Sybaris",
     style: {
-      height: 30,
+      height: 38,
       marginBottom: 22
     }
   }), /*#__PURE__*/React.createElement("p", {
@@ -7169,6 +7270,166 @@ window.ProjectScreen = ProjectScreen;
 (function () {
 /* Sybaris website — Craft & Contact screens. Exposes window.CraftScreen, window.ContactScreen */
 const IMG_E = 'assets/gallery/';
+
+/* Scroll-linked "Our Process" timeline — a central hairline spine that fills
+   with a solid beam as the visitor scrolls past, with steps alternating left
+   and right and lighting up (brass node + connector) once the beam reaches
+   them. Reads scroll position from #kit-scroll (this site's scroll container,
+   not the window — see SmoothScrollHero.jsx for the same pattern) and writes
+   straight to the DOM via refs each frame, so there's no re-render on scroll. */
+function CraftTimeline({
+  steps
+}) {
+  const railRef = React.useRef(null);
+  const beamRef = React.useRef(null);
+  const stepRefs = React.useRef([]);
+  const nodeRefs = React.useRef([]);
+  React.useEffect(() => {
+    const scroller = document.getElementById('kit-scroll') || window;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const rail = railRef.current;
+    const beam = beamRef.current;
+    if (!rail || !beam) return undefined;
+    if (reduce) {
+      beam.style.height = '100%';
+      stepRefs.current.forEach(el => el && el.classList.add('active', 'in-view'));
+      return undefined;
+    }
+    let ticking = false;
+    const apply = () => {
+      const railRect = rail.getBoundingClientRect();
+      const vh = window.innerHeight;
+      const progress = Math.max(0, Math.min(1, (vh * 0.5 - railRect.top) / railRect.height));
+      const beamPx = progress * railRect.height;
+      beam.style.height = beamPx + 'px';
+      stepRefs.current.forEach((el, i) => {
+        const node = nodeRefs.current[i];
+        if (!el || !node) return;
+        const nodeY = node.getBoundingClientRect().top - railRect.top + node.offsetHeight / 2;
+        el.classList.toggle('active', beamPx >= nodeY);
+      });
+      ticking = false;
+    };
+    const onScroll = () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(apply);
+      }
+    };
+    let io = null;
+    if ('IntersectionObserver' in window) {
+      io = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting) e.target.classList.add('in-view');
+        });
+      }, {
+        threshold: 0.25,
+        rootMargin: '0px 0px -8% 0px'
+      });
+      stepRefs.current.forEach(el => el && io.observe(el));
+    } else {
+      stepRefs.current.forEach(el => el && el.classList.add('in-view'));
+    }
+    apply();
+    scroller.addEventListener('scroll', onScroll, {
+      passive: true
+    });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (io) io.disconnect();
+    };
+  }, [steps.length]);
+  stepRefs.current = [];
+  nodeRefs.current = [];
+  return /*#__PURE__*/React.createElement("section", {
+    style: {
+      padding: 'var(--section-y) var(--gutter)'
+    }
+  }, /*#__PURE__*/React.createElement("style", null, `
+        .craft-tl-rail{position:relative;max-width:640px;margin:0 auto}
+        .craft-tl-spine{position:absolute;top:0;bottom:0;left:50%;width:1px;transform:translateX(-50%)}
+        .craft-tl-track{position:absolute;inset:0;background:var(--line)}
+        .craft-tl-beam{position:absolute;top:0;left:0;width:100%;height:0;background:var(--ink-900)}
+        .craft-tl-step{position:relative;width:50%;padding-bottom:var(--space-16);opacity:0;transform:translateY(22px);transition:opacity var(--dur-slow) var(--ease-out),transform var(--dur-slow) var(--ease-out)}
+        .craft-tl-step:last-child{padding-bottom:0}
+        .craft-tl-step.in-view{opacity:1;transform:none}
+        .craft-tl-step.right{margin-left:auto;text-align:left;padding-left:var(--space-10)}
+        .craft-tl-step.left{margin-right:auto;text-align:right;padding-right:var(--space-10)}
+        .craft-tl-node{position:absolute;top:4px;width:11px;height:11px;border-radius:50%;background:var(--cream-100);border:1.5px solid var(--stone-300);z-index:2;transition:background var(--dur-base) var(--ease-out),border-color var(--dur-base) var(--ease-out)}
+        .craft-tl-step.right .craft-tl-node{left:-5.5px}
+        .craft-tl-step.left .craft-tl-node{right:-5.5px}
+        .craft-tl-connector{position:absolute;top:9px;height:1px;width:28px;background:var(--line);transition:background var(--dur-base) var(--ease-out)}
+        .craft-tl-step.right .craft-tl-connector{left:0}
+        .craft-tl-step.left .craft-tl-connector{right:0}
+        .craft-tl-step.active .craft-tl-node{background:var(--brass-500);border-color:var(--brass-500)}
+        .craft-tl-step.active .craft-tl-connector{background:var(--brass-500)}
+        @media (max-width:720px){
+          .craft-tl-rail{padding-left:26px}
+          .craft-tl-spine{left:0}
+          .craft-tl-step{width:100%;text-align:left !important;padding:0 0 var(--space-12) 34px !important;margin:0 !important}
+          .craft-tl-step.right .craft-tl-node,.craft-tl-step.left .craft-tl-node{left:-5.5px;right:auto}
+          .craft-tl-step.right .craft-tl-connector,.craft-tl-step.left .craft-tl-connector{left:0;right:auto;width:20px}
+        }
+        @media (prefers-reduced-motion: reduce){
+          .craft-tl-step{opacity:1;transform:none;transition:none}
+        }
+      `), /*#__PURE__*/React.createElement("div", {
+    className: "craft-tl-rail",
+    ref: railRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "craft-tl-spine"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "craft-tl-track"
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "craft-tl-beam",
+    ref: beamRef
+  })), steps.map((s, i) => /*#__PURE__*/React.createElement("article", {
+    key: s.number,
+    ref: el => {
+      stepRefs.current[i] = el;
+    },
+    className: `craft-tl-step ${i % 2 === 0 ? 'right' : 'left'}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "craft-tl-node",
+    ref: el => {
+      nodeRefs.current[i] = el;
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "craft-tl-connector"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--font-display)',
+      fontSize: 26,
+      color: 'var(--brass-500)',
+      marginBottom: 10
+    }
+  }, s.number), /*#__PURE__*/React.createElement("h3", {
+    style: {
+      fontFamily: 'var(--font-display)',
+      fontWeight: 400,
+      fontSize: 24,
+      letterSpacing: '-0.01em',
+      color: 'var(--text-strong)',
+      margin: '0 0 10px'
+    }
+  }, /*#__PURE__*/React.createElement(EditableText, {
+    id: `craft.steps.${i}.title`,
+    text: s.title
+  })), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: 'var(--font-body)',
+      fontSize: 15.5,
+      lineHeight: 1.7,
+      color: 'var(--text-body)',
+      margin: 0
+    }
+  }, /*#__PURE__*/React.createElement(EditableText, {
+    id: `craft.steps.${i}.body`,
+    text: s.body
+  }))))));
+}
 function CraftScreen({
   onNav
 }) {
@@ -7181,7 +7442,7 @@ function CraftScreen({
   const Ic = window.Ic;
   // All copy/images on this page come from content.js (craft.*).
   const C = window.SITE_CONTENT.craft;
-  const steps = C.steps.map(s => [s.number, s.title, s.body]);
+  const steps = C.steps;
   // Studio team — portraits are editable ImageSlots (swap via ?edit). Defaults
   // (names/roles/photos) come from content.js (craft.team.members).
   const team = C.team.members;
@@ -7193,7 +7454,7 @@ function CraftScreen({
     style: {
       padding: 'calc(var(--section-y) * 0.7) var(--gutter) 0'
     }
-  }, /*#__PURE__*/React.createElement("style", null, `.team-photo img{filter:grayscale(1);transition:filter 480ms ease}.team-photo:hover img{filter:grayscale(0)}`), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("style", null, `.team-photo img{filter:grayscale(1)}`), /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: 'var(--maxw-content)',
       margin: '0 auto'
@@ -7324,56 +7585,9 @@ function CraftScreen({
     style: {
       fontStyle: 'italic'
     }
-  })))), /*#__PURE__*/React.createElement("section", {
-    style: {
-      padding: 'var(--section-y) var(--gutter)'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      maxWidth: 'var(--maxw-content)',
-      margin: '0 auto',
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-      gap: 44
-    }
-  }, steps.map(([n, t, d], i) => /*#__PURE__*/React.createElement("div", {
-    key: n
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: 'var(--font-display)',
-      fontSize: 30,
-      color: 'var(--brass-500)'
-    }
-  }, n), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 1,
-      background: 'var(--line)',
-      margin: '18px 0 20px'
-    }
-  }), /*#__PURE__*/React.createElement("h3", {
-    style: {
-      fontFamily: 'var(--font-display)',
-      fontWeight: 400,
-      fontSize: 26,
-      letterSpacing: '-0.01em',
-      color: 'var(--text-strong)',
-      margin: '0 0 12px'
-    }
-  }, /*#__PURE__*/React.createElement(EditableText, {
-    id: `craft.steps.${i}.title`,
-    text: t
-  })), /*#__PURE__*/React.createElement("p", {
-    style: {
-      fontFamily: 'var(--font-body)',
-      fontSize: 15.5,
-      lineHeight: 1.7,
-      color: 'var(--text-body)',
-      margin: 0
-    }
-  }, /*#__PURE__*/React.createElement(EditableText, {
-    id: `craft.steps.${i}.body`,
-    text: d
-  })))))), /*#__PURE__*/React.createElement("section", {
+  })))), /*#__PURE__*/React.createElement(CraftTimeline, {
+    steps: steps
+  }), /*#__PURE__*/React.createElement("section", {
     style: {
       height: 'min(58vh,520px)',
       minHeight: 360,
